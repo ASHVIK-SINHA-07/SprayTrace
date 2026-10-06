@@ -1,0 +1,57 @@
+# SprayTrace operating configuration.
+# Values here are STARTING POINTS from the submitted report. evaluate.py grid
+# searches on validation data and rewrites this file with the frozen config.
+# `calibrated` flips to true once that has happened.
+
+calibrated: false
+version: 0
+
+brute_force:
+  window_minutes: 5
+  theta_b: 8                 # candidates {5, 8, 12}
+  technique: T1110.001
+
+password_spray:
+  window_minutes: 60
+  theta_u: 15                # distinct usernames (breadth condition)
+  max_attempts_per_user: 3   # A/U <= 3
+  technique: T1110.003
+
+impossible_travel:
+  max_speed_kmh: 1000        # commercial flight ~900
+  earth_radius_km: 6371
+  technique: T1078
+
+isolation_forest:
+  n_estimators: 100
+  contamination: 0.01        # also evaluate 0.02
+  random_state: 42
+  scale_low_percentile: 50.0   # -> 0.0
+  scale_high_percentile: 99.9  # -> 1.0
+
+fusion:
+  # Must sum to 1.0. Equal weights would suppress single-detector incidents
+  # (see docs/detection_spec.md, calibration constraint) -- grid search sets these.
+  weights:
+    brute_force: 0.25
+    password_spray: 0.25
+    impossible_travel: 0.25
+    isolation_forest: 0.25
+  # Rule-floor variant: a fired rule guarantees this minimum R. Evaluated as an
+  # ablation; null disables it.
+  rule_floor: null
+
+gate:
+  critical: 0.80
+  high: 0.60
+  medium: 0.40              # below this: suppressed to audit log
+
+correlation:
+  window_minutes: 60
+  min_events: 2
+
+generation:
+  seed: 42
+  n_users: 100
+  n_events: 10000
+  days: 14
