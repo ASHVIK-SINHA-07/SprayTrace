@@ -1,11 +1,21 @@
 /** One campaign: why it fired, what it touched, and every event behind it. */
 
+import { useState } from 'react'
 import type { CampaignDetail as Detail } from '../types'
+import { CampaignGraph } from './CampaignGraph'
+import { ReplayTimeline } from './ReplayTimeline'
 
 export function CampaignDetailPane({ detail }: { detail: Detail | null }) {
+  const [reached, setReached] = useState<number | null>(null)
+
   if (!detail) {
     return <div className="empty">Select a campaign to see its evidence.</div>
   }
+
+  // While scrubbing, the table follows the playhead so the graph, the timeline
+  // and the evidence all describe the same moment.
+  const shownEvents =
+    reached === null ? detail.events : detail.events.slice(0, reached)
 
   const accounts = detail.usernames.length
   const perAccount = accounts ? detail.failed_count / accounts : 0
@@ -53,12 +63,24 @@ export function CampaignDetailPane({ detail }: { detail: Detail | null }) {
         </div>
       </div>
 
+      <div className="section-title">Attack graph</div>
+      <CampaignGraph detail={detail} />
+
+      <div className="section-title">Replay</div>
+      <ReplayTimeline detail={detail} onCursorChange={setReached} />
+
       <div className="section-title">Sources</div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
         {detail.source_ips.join(' · ')}
       </div>
 
-      <div className="section-title">Events ({detail.events.length})</div>
+      <div className="section-title">
+        Events ({shownEvents.length}
+        {reached !== null && reached < detail.events.length
+          ? ` of ${detail.events.length}`
+          : ''}
+        )
+      </div>
       <div className="table-wrap">
         <table>
           <thead>
@@ -72,7 +94,7 @@ export function CampaignDetailPane({ detail }: { detail: Detail | null }) {
             </tr>
           </thead>
           <tbody>
-            {detail.events.map((event) => (
+            {shownEvents.map((event) => (
               <tr key={event.event_id}>
                 <td>{event.timestamp.replace('T', ' ').replace('Z', '')}</td>
                 <td>{event.username}</td>

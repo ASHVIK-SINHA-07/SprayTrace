@@ -10,7 +10,11 @@ import type { Campaign, CampaignDetail, PipelineSummary } from './types'
 export default function App() {
   const [summary, setSummary] = useState<PipelineSummary | null>(null)
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Deep-link the selection so a campaign can be shared or reopened, and so
+  // a demo can jump straight to the one being discussed.
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => window.location.hash.replace('#', '') || null,
+  )
   const [detail, setDetail] = useState<CampaignDetail | null>(null)
   const [freshId, setFreshId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -36,6 +40,7 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedId) return
+    window.location.hash = selectedId
     api
       .campaign(selectedId)
       .then(setDetail)

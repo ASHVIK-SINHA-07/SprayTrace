@@ -50,11 +50,12 @@ def build_campaigns(
     if candidates.empty:
         return pd.DataFrame(), {}
 
-    evidence_by_event = (
-        alerts.sort_values("score", ascending=False)
-        .groupby("event_id")["evidence"]
-        .first()
-    )
+    # Keep the detector alongside the evidence: a campaign must quote the
+    # detector that defines it. Taking the globally highest-scoring alert
+    # instead let a single-source cluster describe itself with distributed-spray
+    # text about "22 source addresses" -- evidence that contradicted its own
+    # metrics panel.
+    ranked_alerts = alerts.sort_values("score", ascending=False)
 
     clusters: list[dict] = []
     for _, event in candidates.iterrows():
@@ -132,12 +133,17 @@ def build_campaigns(
         technique = TECHNIQUE_BY_DETECTOR.get(cluster["kind"], "")
         span = (cluster["last_seen"] - cluster["first_seen"]).total_seconds() / 60
         sources = sorted(cluster["source_ips"])
-        # Lead with the strongest evidence in the cluster, not the earliest
-        # event -- the first alert is often the weakest of the burst.
-        ranked_ids = [e for e in evidence_by_event.index if e in set(cluster["event_ids"])]
+        # Strongest evidence from the detector that defines this cluster.
+        member_ids = set(cluster["event_ids"])
+        own = ranked_alerts[
+            (ranked_alerts["event_id"].isin(member_ids))
+            & (ranked_alerts["detector"] == cluster["kind"])
+        ]
+        if own.empty:
+            own = ranked_alerts[ranked_alerts["event_id"].isin(member_ids)]
         headline = (
-            evidence_by_event.get(ranked_ids[0])
-            if ranked_ids
+            own.iloc[0]["evidence"]
+            if not own.empty
             else f"{len(cluster['event_ids'])} correlated events."
         )
         label = TECHNIQUE_NAMES.get(technique, cluster["kind"].replace("_", " ").title())
