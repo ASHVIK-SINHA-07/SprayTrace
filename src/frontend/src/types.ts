@@ -36,6 +36,8 @@ export interface ScoredEvent extends AuthEvent {
   risk: number
   tier: Tier
   detectors: DetectorName[]
+  /** Added by the API from the highest-scoring alert on this event. */
+  evidence: string
 }
 
 export interface Campaign {
@@ -63,9 +65,13 @@ export interface CampaignDetail extends Campaign {
 export interface PipelineSummary {
   total_events: number
   alerts: number
+  /** Events at or above the medium gate — what reaches an analyst. */
+  escalated: number
   campaigns: number
   suppressed: number
   by_tier: Record<Tier, number>
+  /** Which reader handled the input: canonical or an Entra sign-in export. */
+  source_format: string
 }
 
 export interface Metrics {
