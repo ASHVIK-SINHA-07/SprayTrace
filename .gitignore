@@ -19,3 +19,6 @@ data/raw/*.csv
 data/processed/
 models/*.joblib
 .env
+
+# Internal build plan (kept locally, not published)
+instructions.md
