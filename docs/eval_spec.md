@@ -58,3 +58,23 @@ campaign reduction for the headline `10,000 -> N` claim.
 Also record **false negatives alongside alert reduction**. A gate that suppresses
 a real low-score campaign is the report's own risk #2; surfacing it is the honest
 move, and it reads as rigor rather than weakness.
+
+## Known measurement artifact: travel false positives
+
+Rules-only on the current dataset gives P=0.936 / R=1.000, and **every false
+positive comes from `impossible_travel`**.
+
+Cause: a planted travel attack puts the victim in an attacker city, but that
+user's ordinary background traffic continues from their office. The detector
+pairs the attacker login with the victim's next normal login and reports a real
+impossible speed. Ground truth labels only the two planted events, so those
+adjacent-but-genuine detections score as false positives.
+
+This was deliberately **not** fixed by widening the labels. Relabelling benign
+events as attacks until the metric improves is how synthetic evaluations become
+meaningless -- the report's own risk #1. The number stands, and the artifact is
+explained here and in `docs/eval_results.md`.
+
+The honest reading: travel precision on *scenario* granularity is higher than the
+event-level figure suggests, because these are correct detections against an
+incomplete label. Report both, and say which is which.

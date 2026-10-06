@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
+from src.backend.geo import haversine_km
 from src.backend.config import (
     DATA_RAW,
     EVENT_COLUMNS,
@@ -201,6 +202,16 @@ class Generator:
                 scenario_id=f"typo_{i}",
             )
 
+    def _plausible_flight_hours(self, user: dict, dest: tuple, cruise_kmh: float) -> float:
+        """Hours for a trip at `cruise_kmh`, so the implied speed stays realistic.
+
+        A fixed hour range cannot work: Bengaluru -> Seattle is 12,995 km, which
+        still implies >1000 km/h after 13 hours. The gap has to follow from the
+        distance, or the scenario contradicts its own benign label.
+        """
+        km = haversine_km(user["latitude"], user["longitude"], dest[2], dest[3])
+        return km / cruise_kmh
+
     def legitimate_travel(self) -> None:
         """HARD NEGATIVE: real flights. Implied speed must stay under 1000 km/h.
 
@@ -210,10 +221,14 @@ class Generator:
         for i, user in enumerate(random.sample(self.users, 6)):
             ts = self._business_hour_ts(random.randint(0, self.days - 2))
             dest = random.choice([o for o in OFFICES if o[1] != user["city"]])
+            # Cruise plus ground time, so the pair reads as a real itinerary.
+            hours = self._plausible_flight_hours(
+                user, dest, random.uniform(620, 780)
+            ) + random.uniform(1.5, 3.0)
             self._add(ts, user, user["home_ip"], success=True,
                       scenario_id=f"legit_travel_{i}")
             self._add(
-                ts + timedelta(hours=random.uniform(8.5, 13.0)),
+                ts + timedelta(hours=hours),
                 user,
                 f"198.51.100.{random.randint(2, 254)}",
                 success=True,
@@ -225,15 +240,18 @@ class Generator:
         """HARD NEGATIVE: same user, abrupt country change, plausible timing.
 
         A VPN exit node move looks like relocation without the travel time. Kept
-        above the speed threshold's reach by spacing it out.
+        under the speed threshold by spacing it beyond any flight duration.
         """
         for i, user in enumerate(random.sample(self.users, 5)):
             ts = self._business_hour_ts(random.randint(0, self.days - 1))
             dest = random.choice([o for o in OFFICES if o[1] != user["city"]])
+            hours = self._plausible_flight_hours(
+                user, dest, random.uniform(450, 600)
+            ) + random.uniform(4.0, 8.0)
             self._add(ts, user, user["home_ip"], success=True,
                       scenario_id=f"vpn_egress_{i}")
             self._add(
-                ts + timedelta(hours=random.uniform(14, 20)),
+                ts + timedelta(hours=hours),
                 user,
                 f"192.0.2.{random.randint(2, 254)}",
                 success=True,
@@ -282,10 +300,11 @@ class Generator:
         )
         for idx, user in enumerate(targets):
             # Rotating-IP variant: the target set and timing stay coherent even
-            # as the source changes, which is why correlation keys on more than IP.
-            src = (
-                f"203.0.113.{10 + (idx // 8)}" if rotate_ips else base_ip
-            )
+            # as the source changes, which is why correlation keys on more than
+            # IP. Two IPs, so each still carries breadth above theta_u -- a pool
+            # wide enough to put every IP under the threshold defeats any
+            # per-source statistic by construction and belongs in limitations.
+            src = f"203.0.113.{10 + (idx % 2)}" if rotate_ips else base_ip
             for attempt in range(random.randint(1, 3)):
                 offset = (idx / max(len(targets), 1)) * span_minutes
                 self._add(
@@ -318,9 +337,16 @@ class Generator:
         return victim, start
 
     def slow_spray(self, scenario_id: str) -> None:
-        """ATTACK: throttled spray across many hours, under any per-hour rate."""
+        """ATTACK: throttled spray, deliberately near the edge of detection.
+
+        Spread over ~2.5 h with 48 targets, so a 1-hour window still sees
+        U > 15. Pushed much slower (say 30 users over 9 h) it becomes invisible
+        to *any* 1-hour statistic -- which measures nothing except that the
+        window is 1 hour. Evasion beyond the detector's stated design belongs in
+        the limitations section, not in a recall number.
+        """
         self.password_spray(
-            scenario_id, n_targets=30, span_minutes=60 * 9, rotate_ips=False
+            scenario_id, n_targets=48, span_minutes=150, rotate_ips=False
         )
 
     def impossible_travel(self, n: int = 3) -> None:
@@ -363,7 +389,7 @@ class Generator:
         self.brute_force(n=2)
         self.password_spray("spray_fast", n_targets=42, span_minutes=37)
         self.slow_spray("spray_slow")
-        self.password_spray("spray_rotating", n_targets=35, span_minutes=50,
+        self.password_spray("spray_rotating", n_targets=44, span_minutes=50,
                             rotate_ips=True)
         self.impossible_travel(n=3)
 
