@@ -22,3 +22,6 @@ models/*.joblib
 
 # Internal build plan (kept locally, not published)
 instructions.md
+
+# External datasets (large, fetched on demand)
+data/external/

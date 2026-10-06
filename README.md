@@ -141,6 +141,19 @@ measured against data containing only attacks and quiet noise:
 A test asserts the distributed spray stays under both naive thresholds. If it
 ever becomes loud, the baseline comparison stops meaning anything and CI says so.
 
+## External validation
+
+Run against **3,000,000 real authentication events** from the LANL corporate
+network. The distributed detector fired **zero** times; the per-source rule
+fired on 0.03% of events. That is a false-positive check on real traffic, which
+synthetic data cannot provide — see
+[docs/external_validation.md](docs/external_validation.md).
+
+LANL carries no source IP, no geolocation and no spray labels, so it cannot
+replace the planted evaluation. UNSW-NB15 (network flows) and LogHub
+(infrastructure logs) do not carry authentication events at all and were not
+used.
+
 ## Microsoft ecosystem
 
 `POST /api/analyze` accepts an **Entra ID sign-in log export** and maps it onto
@@ -171,6 +184,7 @@ docs/           specs + measured results
 | [docs/eval_spec.md](docs/eval_spec.md) | Protocol, baseline, ablation |
 | [docs/eval_results.md](docs/eval_results.md) | Measured numbers |
 | [docs/how_it_works.md](docs/how_it_works.md) | Mechanism, stage by stage |
+| [docs/external_validation.md](docs/external_validation.md) | Results on real LANL data |
 | [docs/panel_7min.md](docs/panel_7min.md) | 7-minute panel plan, mapped to the marking scheme |
 | [docs/risk_register.md](docs/risk_register.md) | What breaks and what to do |
 | [docs/demo_script.md](docs/demo_script.md) | Longer walkthrough (superseded for the panel) |

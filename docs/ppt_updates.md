@@ -94,12 +94,23 @@ This is worth a slide of its own. See "New slides" below.
 
 ## SHOULD FIX — overclaims
 
-### 7 · Slide 5 "Public datasets"
+### 7 · Slide 5 "Public datasets" — NOW PARTLY TRUE
 
 Says data strategy is *"Public authentication/log datasets plus team-generated
-synthetic logs."* We used **only** synthetic. LANL, UNSW-NB15 and LogHub were
-never ingested. Say synthetic only, and say why: no public dataset carries
-labelled sprays with source IP, username and geolocation together.
+synthetic logs."*
+
+**LANL is now actually ingested** — 3,000,000 real authentication events, with
+the distributed detector firing zero times (see
+`docs/external_validation.md`). Keep the claim, but make it precise:
+
+> Primary evaluation on planted synthetic attacks, because no public dataset
+> carries labelled sprays with source IP, username and geolocation together.
+> False-positive validation on 3M real LANL authentication events.
+
+**UNSW-NB15 and LogHub were not used** and should be removed from the slide.
+UNSW-NB15 is network flow data with no usernames; LogHub is infrastructure
+logging. Neither carries authentication events. Listing datasets you did not
+ingest is the kind of claim a panel checks.
 
 ### 8 · Report §10 "[Pilot]" framing
 

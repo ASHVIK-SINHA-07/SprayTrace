@@ -1,40 +1,6 @@
 # 7-Minute Panel Plan
 
-Supersedes `demo_script.md`, which was written for a 5-minute slot plus separate
-Q&A. The panel gives **7–10 minutes total including questions**. Budget:
-
-```
-0:00–0:40  hook + problem          (Ashvik)
-0:40–1:10  the gap, one number     (Abhash)
-1:10–3:10  live demo               (Atharva drives, Ashvik narrates)
-3:10–3:50  code walkthrough        (Hritika)
-3:50–4:20  scale + Microsoft path  (Kapil)
-4:20–4:40  what we are not claiming(Abhash)
-4:40+      questions               (everyone, by area)
-```
-
-Hard rule: **stop demoing at 4:40 whatever happens.** Questions are where
-Demonstration Depth (15) and Team Effort (10) are won.
-
----
-
-## Mapping to the 100 marks
-
-| Criterion | Marks | Where it is earned |
-|---|---:|---|
-| Working Demonstration | 25 | Live demo 1:10–3:10, and the injection in particular |
-| Demonstration Depth | 15 | Code walkthrough + answering follow-ups |
-| Technical Implementation | 20 | Code walkthrough, fusion fix, distributed detector |
-| Problem Fit & Coverage | 15 | Hook + the 0.388 vs 0.981 gap |
-| Product Potential & Scalability | 15 | **5,450 events/sec**, Entra path, Azure deploy |
-| Team Effort & Clarity | 10 | Four people speaking, clean handoffs |
-
-**Every member speaks.** Attendance is marked individually and clarity is 10
-marks. A silent member is a visible gap.
-
----
-
-## 0:00–0:40 · Hook (Ashvik)
+## 0:00–0:40 · Hook (Ashvik & Hritika)
 
 > "Last week someone tried to break into my own Microsoft account. My email has
 > never been published anywhere. Two-factor stopped them — but I had no way to
@@ -48,7 +14,7 @@ marks. A silent member is a visible gap.
 
 Stop. Do not explain the architecture yet.
 
-## 0:40–1:10 · The gap (Abhash)
+## 0:40–1:10 · The gap (Abhash & Hritika)
 
 > "We built the obvious defence first — a naive per-user and per-IP threshold
 > detector, what most shops actually run — and measured it honestly on held-out
@@ -76,7 +42,7 @@ Atharva has the laptop. Ashvik speaks. Do not both talk.
 If anything hangs, say *"while that loads —"* and keep talking. Never watch a
 spinner in silence.
 
-## 3:10–3:50 · Code walkthrough (Hritika)
+## 3:10–3:50 · Code walkthrough (Ashvik Shuryansh)
 
 **The email says: "be ready to walk the panel through your code."** Have
 `src/backend/detection.py` open at `detect_distributed_spray` **before you

@@ -176,13 +176,22 @@ against data containing only attacks and quiet noise:
 | VPN egress change | abrupt country change, plausible timing |
 | Typo failures | 1–3 failures then a success |
 
+**You now have a real-data answer too.** We ran the detectors against
+**3,000,000 real authentication events** from LANL's corporate network. The
+distributed detector fired **zero** times; the per-source rule fired on 0.03%.
+That is a false-positive check synthetic data cannot give us. Details in
+[external_validation.md](external_validation.md).
+
 Expect: *"Isn't synthetic data circular?"* Your answer:
 
 > "Partly, and we say so. No public dataset carries labelled sprays with source
-> IP, username and geolocation together. What we control for is the hard
-> negatives — a 46-user corporate NAT, real flights under the speed threshold —
-> and a test that asserts our evasive spray stays under both naive thresholds,
-> so the baseline comparison can't quietly become unfair."
+> IP, username and geolocation together — that's why the attacks are planted.
+> But we also ran it against three million real LANL authentication events to
+> check we don't carpet-flag benign traffic: the distributed detector fired
+> zero times. And we control for hard negatives — a 46-user corporate NAT, real
+> flights under the speed threshold — with a test asserting our evasive spray
+> stays under both naive thresholds, so the baseline comparison can't quietly
+> become unfair."
 
 Know the story of **the generator bug the evaluation caught**: our first sprays
 fired 42–109 failures per hour from one IP. A dumb per-IP counter caught them
