@@ -171,6 +171,8 @@ docs/           specs + measured results
 | [docs/eval_spec.md](docs/eval_spec.md) | Protocol, baseline, ablation |
 | [docs/eval_results.md](docs/eval_results.md) | Measured numbers |
 | [docs/demo_script.md](docs/demo_script.md) | Five-minute walkthrough |
+| [docs/team_briefing.md](docs/team_briefing.md) | Per-person prep and rehearsal plan |
+| [docs/ppt_updates.md](docs/ppt_updates.md) | Deck corrections against measured results |
 | [docs/deploy.md](docs/deploy.md) | Azure Container Apps deployment |
 | [SECURITY.md](SECURITY.md) | Handling, validation, limitations |
 
