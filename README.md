@@ -86,6 +86,15 @@ Two honest negatives, both reported rather than tuned away:
 - **Per-source spray scores 0.000** on this split, because every spray in the
   test partition is a distributed one. That is the blind spot B2 exists to cover.
 
+## Live demo
+
+<https://spraytrace.ambitiousfield-440a14b7.eastasia.azurecontainerapps.io>
+
+One container on Azure Container Apps — FastAPI serves the API and the built
+dashboard together. Deployment notes and the gotchas hit along the way are in
+[docs/deploy.md](docs/deploy.md). The local path below has no cloud dependency
+and remains the primary demo.
+
 ## Quick start
 
 ```bash
@@ -162,6 +171,7 @@ docs/           specs + measured results
 | [docs/eval_spec.md](docs/eval_spec.md) | Protocol, baseline, ablation |
 | [docs/eval_results.md](docs/eval_results.md) | Measured numbers |
 | [docs/demo_script.md](docs/demo_script.md) | Five-minute walkthrough |
+| [docs/deploy.md](docs/deploy.md) | Azure Container Apps deployment |
 | [SECURITY.md](SECURITY.md) | Handling, validation, limitations |
 
 ## Limitations

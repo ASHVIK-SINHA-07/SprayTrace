@@ -8,12 +8,16 @@ together.
 from __future__ import annotations
 
 import io
+import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.backend import store
 from src.backend.config import DOCS, TECHNIQUE_NAMES
@@ -280,3 +284,25 @@ def post_reset() -> dict[str, Any]:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "spraytrace"}
+
+
+# ---------------------------------------------------------------- static site
+#
+# In a container the built dashboard is served from this same app, so there is
+# one deployable unit and no cross-origin configuration in production. Mounted
+# last so every /api route above still wins.
+
+_static = Path(os.environ.get("SPRAYTRACE_STATIC", "")) if os.environ.get(
+    "SPRAYTRACE_STATIC"
+) else None
+
+if _static and _static.is_dir():
+    app.mount("/assets", StaticFiles(directory=_static / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa(full_path: str) -> FileResponse:
+        """Serve the dashboard, falling back to index.html for client routes."""
+        candidate = _static / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_static / "index.html")
