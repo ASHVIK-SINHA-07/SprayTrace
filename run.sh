@@ -4,7 +4,20 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PY=.venv/bin/python
-[ -x "$PY" ] || { echo "No .venv -- run: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; exit 1; }
+if [ ! -x "$PY" ]; then
+  echo "No .venv found. Set one up with:"
+  echo "  python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+  echo "(3.13 specifically -- 3.14 has no prebuilt pandas wheels and builds from source)"
+  exit 1
+fi
+
+# Free the ports if a previous run left something listening. A stale uvicorn
+# also serves a stale analysis, which is worse than a crash: the demo shows
+# yesterday's campaigns and nothing looks wrong.
+for port in 8000 5173; do
+  pid=$(lsof -ti ":$port" 2>/dev/null || true)
+  [ -n "$pid" ] && { echo "==> freeing port $port"; kill "$pid" 2>/dev/null || true; sleep 1; }
+done
 
 if [ ! -f data/raw/auth_logs.csv ]; then
   echo "==> generating synthetic logs"
