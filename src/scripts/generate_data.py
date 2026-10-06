@@ -157,7 +157,7 @@ class Generator:
         """Ordinary traffic: a few logins per user per day, occasional failures."""
         for day in range(self.days):
             for user in self.users:
-                for _ in range(np.random.poisson(3)):
+                for _ in range(np.random.poisson(5)):
                     ts = self._business_hour_ts(day)
                     # 4% ordinary failure rate (wrong password, expired session).
                     self._add(ts, user, user["home_ip"], success=random.random() > 0.04)
@@ -171,7 +171,7 @@ class Generator:
         office_users = self.users[: self.n_users // 2]
         for day in range(self.days):
             for user in office_users:
-                for _ in range(np.random.poisson(2)):
+                for _ in range(np.random.poisson(4)):
                     ts = self._business_hour_ts(day)
                     self._add(
                         ts,
