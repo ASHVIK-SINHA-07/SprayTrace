@@ -36,9 +36,12 @@ EVENT_COLUMNS = [
 
 GROUND_TRUTH_COLUMNS = ["event_id", "attack_label", "attack_type", "scenario_id"]
 
+# Short names for campaign headlines. The full ATT&CK titles are prefixed
+# "Brute Force:", which makes a spray campaign read as brute force in the UI --
+# the exact confusion the project exists to resolve.
 TECHNIQUE_NAMES = {
-    "T1110.001": "Brute Force: Password Guessing",
-    "T1110.003": "Brute Force: Password Spraying",
+    "T1110.001": "Password Guessing",
+    "T1110.003": "Password Spraying",
     "T1078": "Valid Accounts",
 }
 
