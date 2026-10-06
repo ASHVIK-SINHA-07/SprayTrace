@@ -75,7 +75,14 @@ def _coerce(df: pd.DataFrame) -> pd.DataFrame:
     for column in ("username", "source_ip", "country", "city", "device_id", "user_agent"):
         df[column] = df[column].astype("string").fillna("unknown")
 
-    df["success"] = df["success"].astype(bool)
+    # A blank success cell must not become True: astype(bool) on NA yields
+    # True, which would silently remove a failure from both failure-based
+    # detectors. Unknown outcomes are treated as failures, the safe direction.
+    df["success"] = (
+        df["success"].map(
+            lambda v: str(v).strip().lower() in {"true", "1", "yes", "success"}
+        ).fillna(False).astype(bool)
+    )
 
     # Rows without the fields every detector needs cannot be scored. Quarantine
     # rather than guess -- a fabricated timestamp would corrupt every window.
@@ -116,10 +123,14 @@ def read_entra(source: str | Path | io.BytesIO) -> pd.DataFrame:
 
     # Portal exports often carry "City, Country" in one Location column.
     if "country" in out.columns and "city" not in out.columns:
-        parts = out["country"].astype("string").str.split(",", n=1, expand=True)
+        combined = out["country"].astype("string")
+        parts = combined.str.split(",", n=1, expand=True)
         if parts.shape[1] == 2:
-            out["city"] = parts[0].str.strip()
-            out["country"] = parts[1].str.strip()
+            # Split only the rows that actually carry "City, Country". A mixed
+            # export otherwise turns a bare "GB" into city="GB", country=unknown.
+            has_both = parts[1].notna()
+            out["city"] = parts[0].str.strip().where(has_both)
+            out["country"] = parts[1].str.strip().where(has_both, combined)
 
     frame = _coerce(out)
     frame.attrs["source_format"] = "entra"

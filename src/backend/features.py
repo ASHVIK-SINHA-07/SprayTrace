@@ -49,8 +49,13 @@ def build_features(events: pd.DataFrame) -> pd.DataFrame:
         # tooling shows up as a change; so does a new laptop, which is why this
         # is a feature and not a rule.
         signature = group["device_id"].astype(str) + "|" + group["user_agent"].astype(str)
-        group["device_change"] = (~signature.duplicated()).astype(float)
-        group.loc[signature.index[:1], "device_change"] = 0.0
+        change = (~signature.duplicated()).to_numpy(dtype=float)
+        # The first sighting of any device is not a change. Positional
+        # assignment, because the index holds timestamps and several events can
+        # share one -- .loc on that label would zero all of them.
+        if len(change):
+            change[0] = 0.0
+        group["device_change"] = change
 
         parts.append(group.reset_index())
 

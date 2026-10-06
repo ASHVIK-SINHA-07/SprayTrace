@@ -45,7 +45,14 @@ def detect_brute_force(events: pd.DataFrame, config: dict | None = None) -> pd.D
             continue
 
         peak = int(counts.max())
-        span = (group["timestamp"].max() - group["timestamp"].min()).total_seconds() / 60
+        # Span of the breaching window, not of the whole group: a group spanning
+        # hours would otherwise print "within 5 minutes (burst spanned 360 min)".
+        breach_at = counts.idxmax()
+        window_start = breach_at - pd.Timedelta(minutes=cfg["window_minutes"])
+        in_window = indexed.loc[window_start:breach_at]
+        span = (
+            in_window.index.max() - in_window.index.min()
+        ).total_seconds() / 60 if len(in_window) else 0.0
         # Grade by margin over threshold so a 20-failure burst outranks a 9.
         score = min(1.0, (peak - theta) / max(theta, 1) + 0.5)
         evidence = (

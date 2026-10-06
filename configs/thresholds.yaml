@@ -26,9 +26,9 @@ fusion:
     impossible_travel: 0.25
     isolation_forest: 0.25
   rule_floor:
-    brute_force: 0.6
-    password_spray: 0.6
-    impossible_travel: 0.45
+    brute_force: 0.45
+    password_spray: 0.45
+    impossible_travel: 0.41
 gate:
   critical: 0.8
   high: 0.6

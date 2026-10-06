@@ -95,7 +95,9 @@ def list_events(
     if tier:
         frame = frame[frame["tier"] == tier]
     if username:
-        frame = frame[frame["username"].str.contains(username, case=False, na=False)]
+        frame = frame[
+            frame["username"].str.contains(username, case=False, na=False, regex=False)
+        ]
     if source_ip:
         frame = frame[frame["source_ip"] == source_ip]
     if technique:
@@ -183,7 +185,9 @@ async def post_analyze(file: UploadFile = File(...)) -> dict[str, Any]:
 
 @app.post("/api/inject")
 def post_inject(
-    accounts: int = Query(40, ge=5, le=90),
+    # Below theta_u the spray rule cannot fire, so the demo would return 200
+    # with campaign: None. Floor the input at a value that can actually detect.
+    accounts: int = Query(40, ge=20, le=90),
     minutes: int = Query(25, ge=5, le=240),
 ) -> dict[str, Any]:
     """Demo: plant a live spray campaign and re-run the pipeline.

@@ -68,15 +68,26 @@ def fuse(
             if isinstance(rule_floor, dict)
             else {name: float(rule_floor) for name in DETECTORS}
         )
+        # A fired rule enters at its floor regardless of how far past the
+        # threshold it sits. Scaling the floor by the detector's own score
+        # (floor * score) would put a genuine 1342 km/h impossible travel at
+        # 0.338 -- below the gate, suppressed, never seen. Confidence belongs in
+        # the headroom term below, not in the entry point.
         entry = pd.Series(0.0, index=scored.index)
         for name in DETECTORS:
             base = float(floors.get(name, 0.0))
-            entry = entry.combine(scored[name] * base, max)
+            fired_here = scored[name] > 0
+            entry = entry.combine(fired_here.astype(float) * base, max)
 
         headroom = 1.0 - entry
+        # Confidence has three sources: how far past threshold the firing rule
+        # sits, agreement from the anomaly model, and a second detector
+        # independently flagging the same event.
+        rule_strength = scored[DETECTORS].max(axis=1)
         corroboration = (
-            0.6 * scored["isolation_forest"]
-            + 0.4 * (scored[DETECTORS].gt(0).sum(axis=1) > 1).astype(float)
+            0.4 * rule_strength
+            + 0.4 * scored["isolation_forest"]
+            + 0.2 * (scored[DETECTORS].gt(0).sum(axis=1) > 1).astype(float)
         ).clip(0.0, 1.0)
 
         fired = scored[DETECTORS].max(axis=1) > 0
