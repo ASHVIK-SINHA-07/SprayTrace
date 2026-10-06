@@ -170,7 +170,10 @@ docs/           specs + measured results
 | [docs/data_spec.md](docs/data_spec.md) | Schema, scenarios, Entra mapping |
 | [docs/eval_spec.md](docs/eval_spec.md) | Protocol, baseline, ablation |
 | [docs/eval_results.md](docs/eval_results.md) | Measured numbers |
-| [docs/demo_script.md](docs/demo_script.md) | Five-minute walkthrough |
+| [docs/how_it_works.md](docs/how_it_works.md) | Mechanism, stage by stage |
+| [docs/panel_7min.md](docs/panel_7min.md) | 7-minute panel plan, mapped to the marking scheme |
+| [docs/risk_register.md](docs/risk_register.md) | What breaks and what to do |
+| [docs/demo_script.md](docs/demo_script.md) | Longer walkthrough (superseded for the panel) |
 | [docs/team_briefing.md](docs/team_briefing.md) | Per-person prep and rehearsal plan |
 | [docs/ppt_updates.md](docs/ppt_updates.md) | Deck corrections against measured results |
 | [docs/deploy.md](docs/deploy.md) | Azure Container Apps deployment |

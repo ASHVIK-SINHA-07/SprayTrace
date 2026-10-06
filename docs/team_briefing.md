@@ -53,6 +53,22 @@ Here's why."* Do not improvise a defence. Hand to Abhash or Ashvik.
 That is a *good* answer. Six people pretending to be experts in everything reads
 worse than a team that knows its own structure.
 
+### The mechanism
+
+Read [how_it_works.md](how_it_works.md) — it has the full flowchart and each
+stage in a paragraph. Everyone needs this, not just the engineers.
+
+### Your slot is 7-10 minutes TOTAL
+
+Including the panel's questions. Follow [panel_7min.md](panel_7min.md), not the
+longer demo_script.md. Stop demoing at 4:40 whatever happens -- Demonstration
+Depth (15) and Team Effort (10) are won in the questions.
+
+### Have your code file open BEFORE you walk in
+
+The brief says "be ready to walk the panel through your code." Searching for a
+file on screen costs marks in Technical Implementation (20).
+
 ### Links
 
 - Live: <https://spraytrace.ambitiousfield-440a14b7.eastasia.azurecontainerapps.io>
