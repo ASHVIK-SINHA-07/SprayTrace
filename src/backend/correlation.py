@@ -14,11 +14,12 @@ from src.backend.config import TECHNIQUE_NAMES, load_config
 TECHNIQUE_BY_DETECTOR = {
     "brute_force": "T1110.001",
     "password_spray": "T1110.003",
+    "distributed_spray": "T1110.003",
     "impossible_travel": "T1078",
 }
 # A spray that also triggers brute force is still a spray; order decides the
 # campaign's headline technique.
-PRIORITY = ["password_spray", "brute_force", "impossible_travel"]
+PRIORITY = ["password_spray", "distributed_spray", "brute_force", "impossible_travel"]
 
 # Cross-source joins only count as rotation when the addresses interleave
 # closely in time. Wider than this and distinct campaigns start chaining
@@ -72,6 +73,12 @@ def build_campaigns(
                 # Travel is per-identity: one compromised account, one incident.
                 if not shares_target:
                     continue
+            elif kind == "distributed_spray":
+                # This detector fires on the shape of a window, not on a source,
+                # so its members belong together by construction. Requiring a
+                # shared IP would split one campaign into one per pool address --
+                # 24 fragments of the single incident it just identified.
+                pass
             elif not shares_source:
                 # A new source joins only as part of a rotating-IP campaign,
                 # which interleaves addresses within minutes against the same

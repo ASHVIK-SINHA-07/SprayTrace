@@ -65,14 +65,51 @@ def test_attack_travel_exceeds_threshold(merged: pd.DataFrame) -> None:
     assert _max_speed(merged, "travel_") > limit
 
 
-def test_spray_scenarios_satisfy_breadth_and_depth(merged: pd.DataFrame) -> None:
+def test_concentrated_sprays_satisfy_breadth_and_depth(merged: pd.DataFrame) -> None:
+    """Sprays the per-source rule is meant to catch."""
     cfg = load_config()["password_spray"]
-    for scenario in ("spray_fast", "spray_slow", "spray_rotating"):
+    scenarios = [
+        s for s in merged["scenario_id"].unique()
+        if s.startswith(("spray_fast", "spray_slow", "spray_rotating"))
+    ]
+    assert scenarios, "no concentrated spray scenarios generated"
+    for scenario in scenarios:
         failures = merged[(merged["scenario_id"] == scenario) & (~merged["success"])]
         distinct_users = failures["username"].nunique()
         attempts = len(failures)
         assert distinct_users > cfg["theta_u"], scenario
         assert attempts / distinct_users <= cfg["max_attempts_per_user"], scenario
+
+
+def test_distributed_spray_evades_per_source_thresholds(merged: pd.DataFrame) -> None:
+    """The evasive case: broad overall, unremarkable from any one address.
+
+    If this scenario ever became loud per source, a naive per-IP counter would
+    catch it and the comparison against the baseline would stop meaning
+    anything -- which is precisely what happened before it was added.
+    """
+    from src.backend.baseline import DEFAULT_PER_IP, DEFAULT_PER_USER
+
+    scenarios = [
+        s for s in merged["scenario_id"].unique() if s.startswith("spray_distributed")
+    ]
+    assert scenarios, "no distributed spray scenarios generated"
+
+    for scenario in scenarios:
+        failures = merged[(merged["scenario_id"] == scenario) & (~merged["success"])]
+        assert failures["username"].nunique() >= 25, scenario
+        assert failures["source_ip"].nunique() >= 8, scenario
+
+        per_user = failures.groupby("username").size().max()
+        assert per_user <= DEFAULT_PER_USER, f"{scenario} would trip a per-user counter"
+
+        hourly = (
+            failures.set_index("timestamp")
+            .groupby([pd.Grouper(freq="60min"), "source_ip"])
+            .size()
+            .max()
+        )
+        assert hourly <= DEFAULT_PER_IP, f"{scenario} would trip a per-IP counter"
 
 
 def test_nat_hard_negative_never_satisfies_spray_rule(merged: pd.DataFrame) -> None:

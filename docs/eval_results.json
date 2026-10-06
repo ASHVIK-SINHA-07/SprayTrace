@@ -1,0 +1,153 @@
+{
+  "generated": "2026-10-06 10:41 UTC",
+  "calibrated": true,
+  "protocol": "split by whole scenario; tuned on validation; reported once on test",
+  "splits": {
+    "train": {
+      "scenarios": 33
+    },
+    "validation": {
+      "scenarios": 25
+    },
+    "test": {
+      "scenarios": 26
+    }
+  },
+  "test_events": 3894,
+  "frozen_config": {
+    "theta_b": 5,
+    "theta_u": 12,
+    "rule_floor": {
+      "brute_force": 0.45,
+      "password_spray": 0.45,
+      "distributed_spray": 0.45,
+      "impossible_travel": 0.41
+    },
+    "gate": {
+      "critical": 0.8,
+      "high": 0.6,
+      "medium": 0.4
+    }
+  },
+  "configurations": [
+    {
+      "name": "Naive threshold baseline",
+      "precision": 1.0,
+      "recall": 0.2403,
+      "f1": 0.3875,
+      "alerts": 56,
+      "true_positives": 56,
+      "false_positives": 0,
+      "false_negatives": 177,
+      "alert_to_tp": 1.0,
+      "noise_reduction": null
+    },
+    {
+      "name": "A \u00b7 Brute force only",
+      "precision": 1.0,
+      "recall": 0.2318,
+      "f1": 0.3763,
+      "alerts": 54,
+      "true_positives": 54,
+      "false_positives": 0,
+      "false_negatives": 179,
+      "alert_to_tp": 1.0,
+      "noise_reduction": null
+    },
+    {
+      "name": "B \u00b7 Per-source spray only",
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "alerts": 0,
+      "true_positives": 0,
+      "false_positives": 0,
+      "false_negatives": 233,
+      "alert_to_tp": null,
+      "noise_reduction": null
+    },
+    {
+      "name": "B2 \u00b7 Distributed spray only",
+      "precision": 0.9744,
+      "recall": 0.8155,
+      "f1": 0.8879,
+      "alerts": 195,
+      "true_positives": 190,
+      "false_positives": 5,
+      "false_negatives": 43,
+      "alert_to_tp": 1.03,
+      "noise_reduction": null
+    },
+    {
+      "name": "C \u00b7 Travel only",
+      "precision": 0.7273,
+      "recall": 0.0343,
+      "f1": 0.0656,
+      "alerts": 11,
+      "true_positives": 8,
+      "false_positives": 3,
+      "false_negatives": 225,
+      "alert_to_tp": 1.38,
+      "noise_reduction": null
+    },
+    {
+      "name": "D \u00b7 Isolation Forest only",
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "alerts": 0,
+      "true_positives": 0,
+      "false_positives": 0,
+      "false_negatives": 233,
+      "alert_to_tp": null,
+      "noise_reduction": null
+    },
+    {
+      "name": "E \u00b7 Rules only (A+B+C)",
+      "precision": 0.9667,
+      "recall": 0.9957,
+      "f1": 0.981,
+      "alerts": 240,
+      "true_positives": 232,
+      "false_positives": 8,
+      "false_negatives": 1,
+      "alert_to_tp": 1.03,
+      "noise_reduction": null
+    },
+    {
+      "name": "F \u00b7 Full fusion",
+      "precision": 0.9667,
+      "recall": 0.9957,
+      "f1": 0.981,
+      "alerts": 240,
+      "true_positives": 232,
+      "false_positives": 8,
+      "false_negatives": 1,
+      "alert_to_tp": 1.03,
+      "noise_reduction": 91.1
+    }
+  ],
+  "per_attack_type": {
+    "brute_force": {
+      "detected": 54,
+      "total": 54,
+      "recall": 1.0
+    },
+    "impossible_travel": {
+      "detected": 8,
+      "total": 8,
+      "recall": 1.0
+    },
+    "password_spray": {
+      "detected": 170,
+      "total": 171,
+      "recall": 0.9942
+    }
+  },
+  "reduction": {
+    "raw_events": 3894,
+    "escalatable": 240,
+    "campaigns": 5
+  },
+  "grid_search_points": 27
+}

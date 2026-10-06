@@ -53,6 +53,10 @@ USER_AGENTS = [
 # should have something to find that the rules do not already encode.
 ATTACK_USER_AGENTS = ["python-requests/2.32.3", "curl/8.7.1", "Go-http-client/2.0"]
 
+# Background traffic is bucketed into this many scenarios so the evaluation can
+# distribute benign events across splits. Scenarios are the split unit.
+BACKGROUND_COHORTS = 10
+
 
 class Generator:
     def __init__(self, config: dict | None = None) -> None:
@@ -155,13 +159,22 @@ class Generator:
     # -------------------------------------------------------------- scenarios
 
     def background(self) -> None:
-        """Ordinary traffic: a few logins per user per day, occasional failures."""
+        """Ordinary traffic: a few logins per user per day, occasional failures.
+
+        Bucketed into per-cohort scenarios rather than one "background" blob.
+        A scenario is the unit the evaluation splits on, so a single scenario
+        holding 68% of the events would land whole in one split and starve the
+        other two.
+        """
         for day in range(self.days):
-            for user in self.users:
+            for index, user in enumerate(self.users):
+                cohort = f"background_{index % BACKGROUND_COHORTS:02d}"
                 for _ in range(np.random.poisson(5)):
                     ts = self._business_hour_ts(day)
                     # 4% ordinary failure rate (wrong password, expired session).
-                    self._add(ts, user, user["home_ip"], success=random.random() > 0.04)
+                    self._add(ts, user, user["home_ip"],
+                              success=random.random() > 0.04,
+                              scenario_id=cohort)
 
     def nat_traffic(self) -> None:
         """HARD NEGATIVE: many legitimate users behind one office IP.
@@ -171,7 +184,7 @@ class Generator:
         """
         office_users = self.users[: self.n_users // 2]
         for day in range(self.days):
-            for user in office_users:
+            for user_index, user in enumerate(office_users):
                 for _ in range(np.random.poisson(4)):
                     ts = self._business_hour_ts(day)
                     self._add(
@@ -179,7 +192,7 @@ class Generator:
                         user,
                         self.nat_ip,
                         success=random.random() > 0.05,
-                        scenario_id="nat_benign",
+                        scenario_id=f"nat_benign_{user_index % BACKGROUND_COHORTS:02d}",
                     )
 
     def typo_failures(self) -> None:
@@ -336,6 +349,45 @@ class Generator:
         )
         return victim, start
 
+    def distributed_spray(self, scenario_id: str, n_targets: int = 60,
+                          pool_size: int = 24, span_minutes: int = 55) -> None:
+        """ATTACK: the evasive case -- broad, but quiet from every single source.
+
+        This is the attack the project exists to catch. Each IP in the pool
+        stays well under a per-IP failure counter and each account sees one or
+        two attempts, so neither a per-user nor a per-source threshold fires.
+        What remains visible is breadth: one coherent target set hit by a pool
+        of addresses inside one window, which is exactly what SprayScore and
+        campaign correlation key on.
+
+        Without this scenario a naive per-IP counter scores as well as
+        SprayTrace, because the louder sprays walk straight into it.
+        """
+        origin = random.choice(ATTACKER_ORIGINS)
+        targets = random.sample(self.users, min(n_targets, len(self.users)))
+        pool = [f"198.51.100.{20 + i}" for i in range(pool_size)]
+        start = self.start + timedelta(
+            days=random.randint(2, self.days - 2), hours=random.randint(1, 20)
+        )
+        for index, user in enumerate(targets):
+            # Round-robin the pool: each address carries only a couple of
+            # failures per hour, far below any per-source threshold.
+            src = pool[index % pool_size]
+            for attempt in range(random.randint(1, 2)):
+                offset = (index / max(len(targets), 1)) * span_minutes
+                self._add(
+                    start + timedelta(minutes=offset, seconds=25 * attempt),
+                    user,
+                    src,
+                    success=False,
+                    location=origin,
+                    user_agent=random.choice(ATTACK_USER_AGENTS),
+                    device_id="unknown",
+                    label=True,
+                    attack_type="password_spray",
+                    scenario_id=scenario_id,
+                )
+
     def slow_spray(self, scenario_id: str) -> None:
         """ATTACK: throttled spray, deliberately near the edge of detection.
 
@@ -386,12 +438,24 @@ class Generator:
         self.legitimate_travel()
         self.vpn_egress_change()
 
-        self.brute_force(n=2)
-        self.password_spray("spray_fast", n_targets=42, span_minutes=37)
-        self.slow_spray("spray_slow")
-        self.password_spray("spray_rotating", n_targets=44, span_minutes=50,
-                            rotate_ips=True)
-        self.impossible_travel(n=3)
+        # Several instances of each attack type so every split receives
+        # examples of all three. Parameters vary so they are not clones.
+        self.brute_force(n=6)
+        for index, (targets, span) in enumerate(
+            [(42, 37), (38, 28), (46, 44), (34, 22), (50, 55)]
+        ):
+            self.password_spray(f"spray_fast_{index}", n_targets=targets,
+                                span_minutes=span)
+        self.slow_spray("spray_slow_0")
+        self.slow_spray("spray_slow_1")
+        for index in range(3):
+            self.password_spray(f"spray_rotating_{index}", n_targets=44,
+                                span_minutes=50, rotate_ips=True)
+        # The evasive variant: quiet per source, visible only as breadth.
+        for index, (targets, pool) in enumerate([(60, 24), (52, 20), (66, 28)]):
+            self.distributed_spray(f"spray_distributed_{index}",
+                                   n_targets=targets, pool_size=pool)
+        self.impossible_travel(n=9)
 
         events = pd.DataFrame(self.rows, columns=EVENT_COLUMNS)
         truth = pd.DataFrame(self.labels, columns=GROUND_TRUTH_COLUMNS)

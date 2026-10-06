@@ -1,12 +1,12 @@
-calibrated: false
-version: 0
+calibrated: true
+version: 1
 brute_force:
   window_minutes: 5
-  theta_b: 8
+  theta_b: 5
   technique: T1110.001
 password_spray:
   window_minutes: 60
-  theta_u: 15
+  theta_u: 12
   max_attempts_per_user: 3
   technique: T1110.003
 impossible_travel:
@@ -21,13 +21,15 @@ isolation_forest:
   scale_high_percentile: 99.9
 fusion:
   weights:
-    brute_force: 0.25
-    password_spray: 0.25
-    impossible_travel: 0.25
-    isolation_forest: 0.25
+    brute_force: 0.2
+    password_spray: 0.2
+    distributed_spray: 0.2
+    impossible_travel: 0.2
+    isolation_forest: 0.2
   rule_floor:
     brute_force: 0.45
     password_spray: 0.45
+    distributed_spray: 0.45
     impossible_travel: 0.41
 gate:
   critical: 0.8
@@ -41,3 +43,9 @@ generation:
   n_users: 100
   n_events: 10000
   days: 14
+distributed_spray:
+  min_users: 25
+  min_sources: 8
+  max_attempts_per_user: 3
+  max_attempts_per_source: 12
+  technique: T1110.003

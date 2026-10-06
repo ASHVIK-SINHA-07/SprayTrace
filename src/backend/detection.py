@@ -151,6 +151,90 @@ def detect_password_spray(events: pd.DataFrame, config: dict | None = None) -> p
     return pd.DataFrame(alerts, columns=ALERT_COLUMNS)
 
 
+def detect_distributed_spray(
+    events: pd.DataFrame, config: dict | None = None
+) -> pd.DataFrame:
+    """Spray that is quiet from every single source but broad in aggregate.
+
+    The per-source rule above groups by source_ip, so a pool of addresses
+    splits one campaign's target set below theta_u and nothing fires -- the
+    same per-source blind spot a naive IP counter has. A rotating pool of 24
+    addresses hitting 60 accounts leaves ~2 accounts per IP.
+
+    What survives distribution is the shape of the *window*: an unusual number
+    of distinct accounts failing in one period, each only once or twice, from
+    sources that are mostly unfamiliar. That is a property of the time window
+    rather than of any address, so this detector groups by window alone and
+    then requires the failures to be shallow and spread across many sources.
+
+    ATT&CK T1110.003, same technique seen through a different statistic.
+    """
+    cfg_all = config or load_config()
+    cfg = cfg_all["password_spray"]
+    dist = cfg_all.get("distributed_spray", {})
+    window = cfg["window_minutes"]
+    min_users = dist.get("min_users", 25)
+    min_sources = dist.get("min_sources", 8)
+    max_per_user = dist.get("max_attempts_per_user", 3)
+    max_per_source = dist.get("max_attempts_per_source", 12)
+
+    failures = events[~events["success"]]
+    if failures.empty:
+        return _empty()
+
+    indexed = failures.sort_values("timestamp").set_index("timestamp")
+    alerts: list[dict] = []
+    seen: set[int] = set()
+
+    for offset in ("0min", f"{window // 2}min"):
+        for _, bucket in indexed.groupby(
+            pd.Grouper(freq=f"{window}min", offset=offset)
+        ):
+            if bucket.empty:
+                continue
+            distinct_users = bucket["username"].nunique()
+            distinct_sources = bucket["source_ip"].nunique()
+            attempts = len(bucket)
+
+            if distinct_users < min_users or distinct_sources < min_sources:
+                continue
+            if attempts / distinct_users > max_per_user:
+                continue
+            # Each source must be individually unremarkable; otherwise the
+            # per-source rule already covers it and this would double-report
+            # ordinary noisy traffic.
+            if attempts / distinct_sources > max_per_source:
+                continue
+
+            spray_score = distinct_users / attempts
+            span = (bucket.index.max() - bucket.index.min()).total_seconds() / 60
+            score = min(1.0, 0.55 + 0.45 * min(1.0, distinct_sources / (min_sources * 2)))
+            evidence = (
+                f"{attempts} failed attempts across {distinct_users} distinct "
+                f"usernames from {distinct_sources} source addresses "
+                f"({attempts / distinct_users:.1f} per account, "
+                f"{attempts / distinct_sources:.1f} per source, SprayScore "
+                f"{spray_score:.2f}) within {span:.0f} minutes — distributed "
+                f"password spraying: no single source exceeds a per-IP "
+                f"threshold (T1110.003)."
+            )
+            for event_id in bucket["event_id"]:
+                if int(event_id) in seen:
+                    continue
+                seen.add(int(event_id))
+                alerts.append(
+                    {
+                        "event_id": int(event_id),
+                        "detector": "distributed_spray",
+                        "score": round(score, 4),
+                        "attack_technique": "T1110.003",
+                        "evidence": evidence,
+                    }
+                )
+
+    return pd.DataFrame(alerts, columns=ALERT_COLUMNS)
+
+
 def detect_impossible_travel(
     events: pd.DataFrame, config: dict | None = None
 ) -> pd.DataFrame:
@@ -213,6 +297,7 @@ def run_rules(events: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
     frames = [
         detect_brute_force(events, cfg),
         detect_password_spray(events, cfg),
+        detect_distributed_spray(events, cfg),
         detect_impossible_travel(events, cfg),
     ]
     frames = [f for f in frames if not f.empty]

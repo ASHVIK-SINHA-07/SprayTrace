@@ -15,7 +15,7 @@ import pandas as pd
 
 from src.backend.config import load_config
 
-DETECTORS = ["brute_force", "password_spray", "impossible_travel"]
+DETECTORS = ["brute_force", "password_spray", "distributed_spray", "impossible_travel"]
 TIERS = ["critical", "high", "medium", "low"]
 
 
