@@ -17,6 +17,11 @@
 
 Coordinates are assigned at generation, so **no GeoIP API is needed**.
 
+The canonical CSV may include a unique, non-negative integer `event_id`.
+Normalization preserves supplied IDs so sorting and quarantining rows keep the
+ground-truth join intact. Imports without IDs receive them in timestamp order.
+Rows missing a usable timestamp, username, or source IP are quarantined.
+
 ## Ground truth — separate file
 
 `data/raw/ground_truth.csv`: `event_id`, `attack_label` (bool), `attack_type`

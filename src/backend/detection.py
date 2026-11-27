@@ -1,4 +1,4 @@
-"""The three deterministic detectors. Thresholds come from docs/detection_spec.md.
+"""Deterministic authentication detectors. Thresholds come from docs/detection_spec.md.
 
 Every detector returns the same frame shape so fusion can treat them uniformly:
     event_id, detector, score, attack_technique, evidence
@@ -8,6 +8,9 @@ that justify it, so the explanation can never drift from the detection.
 """
 
 from __future__ import annotations
+
+from collections import Counter
+from heapq import heappop, heappush
 
 import pandas as pd
 
@@ -21,132 +24,127 @@ def _empty() -> pd.DataFrame:
     return pd.DataFrame(columns=ALERT_COLUMNS)
 
 
-def detect_brute_force(events: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
-    """Many failures against ONE account from one source in a short window.
+def trailing_window_starts(timestamps: pd.DatetimeIndex, minutes: int):
+    """Positions in trailing windows with an open left edge."""
+    return timestamps.searchsorted(timestamps - pd.Timedelta(minutes=minutes), side="right")
 
-    Grouped by (username, source_ip) over a 5-minute rolling window, B > theta_b.
-    ATT&CK T1110.001.
+
+def _best_windows(event_ids, windows):
+    """Yield each event with the highest-ranked qualifying window covering it.
+
+    Windows arrive in start order. Heap entries rank the supporting evidence
+    and retain the window's inclusive end position.
     """
+    pending = iter(windows)
+    window = next(pending, None)
+    active = []
+    for position, event_id in enumerate(event_ids):
+        while window is not None and window[0] <= position:
+            start, end, rank, score, evidence = window
+            heappush(active, (rank, start, end, score, evidence))
+            window = next(pending, None)
+        while active and active[0][2] < position:
+            heappop(active)
+        if active:
+            _, _, _, score, evidence = active[0]
+            yield int(event_id), score, evidence
+
+
+def detect_brute_force(events: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
+    """Grade each failure using its strongest breaching five-minute window."""
     cfg = (config or load_config())["brute_force"]
-    window = f"{cfg['window_minutes']}min"
+    minutes = cfg["window_minutes"]
     theta = cfg["theta_b"]
+    technique = cfg["technique"]
+    alerts = []
 
     failures = events[~events["success"]]
-    if failures.empty:
-        return _empty()
-
-    alerts: list[dict] = []
     for (username, source_ip), group in failures.groupby(["username", "source_ip"]):
-        group = group.sort_values("timestamp")
-        indexed = group.set_index("timestamp")
-        # Rolling count of failures in the trailing window, evaluated at each event.
-        counts = indexed["event_id"].rolling(window).count()
-        if counts.max() <= theta:
+        if len(group) <= theta:
             continue
-
-        peak = int(counts.max())
-        # Span of the breaching window, not of the whole group: a group spanning
-        # hours would otherwise print "within 5 minutes (burst spanned 360 min)".
-        breach_at = counts.idxmax()
-        window_start = breach_at - pd.Timedelta(minutes=cfg["window_minutes"])
-        in_window = indexed.loc[window_start:breach_at]
-        span = (
-            in_window.index.max() - in_window.index.min()
-        ).total_seconds() / 60 if len(in_window) else 0.0
-        # Grade by margin over threshold so a 20-failure burst outranks a 9.
-        score = min(1.0, (peak - theta) / max(theta, 1) + 0.5)
-        evidence = (
-            f"{peak} failed sign-ins for {username} from {source_ip} within "
-            f"{cfg['window_minutes']} minutes (threshold {theta}; burst spanned "
-            f"{span:.1f} min) — consistent with password guessing (T1110.001)."
-        )
-        # Flag only the events inside the window that breached, not the whole group.
-        breaching = counts[counts > theta].index
-        if len(breaching):
-            window_start = breaching.min() - pd.Timedelta(minutes=cfg["window_minutes"])
-            member_ids = indexed.loc[window_start:breaching.max(), "event_id"]
-        else:
-            member_ids = group["event_id"]
-        for event_id in member_ids:
-            alerts.append(
-                {
-                    "event_id": int(event_id),
-                    "detector": "brute_force",
-                    "score": round(score, 4),
-                    "attack_technique": "T1110.001",
-                    "evidence": evidence,
-                }
+        group = group.sort_values("timestamp", kind="stable")
+        timestamps = pd.DatetimeIndex(group["timestamp"])
+        starts = trailing_window_starts(timestamps, minutes)
+        windows = []
+        for end, start in enumerate(starts):
+            count = end - start + 1
+            if count <= theta:
+                continue
+            span = (timestamps[end] - timestamps[start]).total_seconds() / 60
+            score = min(1.0, (count - theta) / max(theta, 1) + 0.5)
+            evidence = (
+                f"{count} failed sign-ins for {username} from {source_ip} within "
+                f"{minutes} minutes (threshold {theta}; burst spanned "
+                f"{span:.1f} min) — consistent with password guessing ({technique})."
             )
+            windows.append((start, end, (-count,), score, evidence))
+
+        for event_id, score, evidence in _best_windows(group["event_id"], windows):
+            alerts.append({
+                "event_id": event_id, "detector": "brute_force", "score": round(score, 4),
+                "attack_technique": technique, "evidence": evidence,
+            })
 
     return pd.DataFrame(alerts, columns=ALERT_COLUMNS)
 
 
 def detect_password_spray(events: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
-    """Few attempts against MANY accounts from one source.
-
-    Grouped by source_ip over a 1-hour window. Fires on breadth (U > theta_u)
-    AND shallowness (A/U <= max_attempts_per_user). SprayScore S = U/A grades it.
-    ATT&CK T1110.003.
-
-    The breadth condition is load-bearing: a single failed login gives U/A = 1,
-    the maximum SprayScore, so S alone would flag every lone typo.
-    """
+    """Score shallow, broad failure windows per source using SprayScore U/A."""
     cfg = (config or load_config())["password_spray"]
-    window = cfg["window_minutes"]
+    window = pd.Timedelta(minutes=cfg["window_minutes"])
     theta_u = cfg["theta_u"]
     max_per_user = cfg["max_attempts_per_user"]
+    technique = cfg["technique"]
+    alerts = []
 
     failures = events[~events["success"]]
-    if failures.empty:
-        return _empty()
-
-    alerts: list[dict] = []
     for source_ip, group in failures.groupby("source_ip"):
-        group = group.sort_values("timestamp")
-        indexed = group.set_index("timestamp")
+        if len(group) <= theta_u:
+            continue
+        group = group.sort_values("timestamp", kind="stable")
+        timestamps = pd.DatetimeIndex(group["timestamp"])
+        usernames = group["username"].tolist()
+        ends = timestamps.searchsorted(timestamps + window, side="left")
+        counts: Counter[str] = Counter()
+        left = right = 0
+        windows = []
+        for start, end in enumerate(ends):
+            # A window with the same end as its predecessor is contained in
+            # that predecessor. Including the full window keeps the shallowness
+            # check meaningful when users retry throughout the hour.
+            if end == right:
+                continue
+            while right < end:
+                counts[usernames[right]] += 1
+                right += 1
+            while left < start:
+                username = usernames[left]
+                counts[username] -= 1
+                if counts[username] == 0:
+                    del counts[username]
+                left += 1
 
-        # Tumbling hourly bins, then the same bins offset by half a window, so a
-        # campaign straddling a bin boundary is not split below the threshold.
-        offsets = ["0min", f"{window // 2}min"]
-        seen: set[int] = set()
-        for offset in offsets:
-            binned = indexed.groupby(pd.Grouper(freq=f"{window}min", offset=offset))
-            for bin_start, bucket in binned:
-                if bucket.empty:
-                    continue
-                distinct_users = bucket["username"].nunique()
-                attempts = len(bucket)
-                if distinct_users <= theta_u:
-                    continue
-                if attempts / distinct_users > max_per_user:
-                    continue
+            distinct_users = len(counts)
+            attempts = end - start
+            if distinct_users <= theta_u or attempts / distinct_users > max_per_user:
+                continue
 
-                spray_score = distinct_users / attempts
-                span = (
-                    bucket.index.max() - bucket.index.min()
-                ).total_seconds() / 60
-                # Breadth beyond the threshold drives confidence; cap at 1.0.
-                score = min(1.0, 0.6 + 0.4 * min(1.0, (distinct_users - theta_u) / theta_u))
-                evidence = (
-                    f"{attempts} failed attempts across {distinct_users} distinct "
-                    f"usernames ({attempts / distinct_users:.1f} per account, "
-                    f"SprayScore {spray_score:.2f}) from {source_ip} within "
-                    f"{span:.0f} minutes — consistent with password spraying "
-                    f"(T1110.003)."
-                )
-                for event_id in bucket["event_id"]:
-                    if int(event_id) in seen:
-                        continue
-                    seen.add(int(event_id))
-                    alerts.append(
-                        {
-                            "event_id": int(event_id),
-                            "detector": "password_spray",
-                            "score": round(score, 4),
-                            "attack_technique": "T1110.003",
-                            "evidence": evidence,
-                        }
-                    )
+            score = distinct_users / attempts
+            span = (timestamps[end - 1] - timestamps[start]).total_seconds() / 60
+            evidence = (
+                f"{attempts} failed attempts across {distinct_users} distinct "
+                f"usernames ({attempts / distinct_users:.1f} per account, "
+                f"SprayScore {score:.2f}) from {source_ip} within "
+                f"{span:.0f} minutes — consistent with password spraying ({technique})."
+            )
+            # Prefer the widest supporting evidence, then the fuller window.
+            windows.append((start, end - 1, (-distinct_users, -attempts), score, evidence))
+
+        for event_id, score, evidence in _best_windows(group["event_id"], windows):
+            alerts.append({
+                "event_id": event_id, "detector": "password_spray", "score": round(score, 4),
+                "attack_technique": technique, "evidence": evidence,
+            })
 
     return pd.DataFrame(alerts, columns=ALERT_COLUMNS)
 
@@ -257,13 +255,16 @@ def detect_impossible_travel(
             continue
         rows = group.to_dict("records")
         for previous, current in zip(rows, rows[1:]):
-            if pd.isna(previous["latitude"]) or pd.isna(current["latitude"]):
-                continue
-            hours = (current["timestamp"] - previous["timestamp"]).total_seconds() / 3600
-            distance = haversine_km(
+            coordinates = (
                 previous["latitude"], previous["longitude"],
                 current["latitude"], current["longitude"],
             )
+            bounds = (90, 180, 90, 180)
+            if any(pd.isna(value) or not -limit <= value <= limit
+                   for value, limit in zip(coordinates, bounds)):
+                continue
+            hours = (current["timestamp"] - previous["timestamp"]).total_seconds() / 3600
+            distance = haversine_km(*coordinates)
             speed = implied_speed_kmh(distance, hours)
             if speed is None or speed <= limit:
                 continue
@@ -292,7 +293,7 @@ def detect_impossible_travel(
 
 
 def run_rules(events: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
-    """All three detectors over one frame."""
+    """Run all deterministic detectors over one frame."""
     cfg = config or load_config()
     frames = [
         detect_brute_force(events, cfg),

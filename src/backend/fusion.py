@@ -95,10 +95,13 @@ def fuse(
             ~fired, (entry + headroom * corroboration).clip(upper=1.0)
         ).round(4)
 
-    scored["tier"] = scored["risk"].map(lambda r: classify(r, cfg))
+    scored["tier"] = "low"
+    for tier in ("medium", "high", "critical"):
+        scored.loc[scored["risk"] >= cfg["gate"][tier], "tier"] = tier
+    signal_names = [*DETECTORS, "isolation_forest"]
     scored["detectors"] = [
-        [name for name in DETECTORS + ["isolation_forest"] if row[name] > 0]
-        for _, row in scored.iterrows()
+        [name for name, fired in zip(signal_names, row) if fired]
+        for row in scored[signal_names].gt(0).itertuples(index=False, name=None)
     ]
     return scored
 

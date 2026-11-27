@@ -67,13 +67,18 @@ def _coerce(df: pd.DataFrame) -> pd.DataFrame:
         if column not in df.columns:
             df[column] = pd.NA
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601", utc=True)
+    has_event_ids = df["event_id"].notna().any()
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"], format="ISO8601", utc=True, errors="coerce"
+    )
 
     for column in ("latitude", "longitude"):
         df[column] = pd.to_numeric(df[column], errors="coerce")
 
     for column in ("username", "source_ip", "country", "city", "device_id", "user_agent"):
-        df[column] = df[column].astype("string").fillna("unknown")
+        df[column] = (
+            df[column].astype("string").str.strip().replace("", pd.NA).fillna("unknown")
+        )
 
     # A blank success cell must not become True: astype(bool) on NA yields
     # True, which would silently remove a failure from both failure-based
@@ -91,20 +96,34 @@ def _coerce(df: pd.DataFrame) -> pd.DataFrame:
     df = df[(df["username"] != "unknown") & (df["source_ip"] != "unknown")]
     quarantined = before - len(df)
 
-    df = df.sort_values("timestamp").reset_index(drop=True)
-    df["event_id"] = range(len(df))
+    df = df.sort_values("timestamp", kind="stable").reset_index(drop=True)
+    if has_event_ids:
+        ids = df["event_id"].astype("string").str.strip()
+        if not ids.str.fullmatch(r"[0-9]+", na=False).all():
+            raise ValueError("Canonical event_id values must be non-negative integers.")
+        try:
+            ids = ids.astype("int64")
+        except (ValueError, OverflowError) as exc:
+            raise ValueError("Canonical event_id values must fit in a signed 64-bit integer.") from exc
+        if not ids.is_unique:
+            raise ValueError("Canonical event_id values must be unique.")
+        df["event_id"] = ids
+    else:
+        df["event_id"] = range(len(df))
     df = df[EVENT_COLUMNS]
     df.attrs["quarantined"] = quarantined
     return df
 
 
 def read_canonical(source: str | Path | io.BytesIO) -> pd.DataFrame:
-    return _coerce(pd.read_csv(source))
+    raw = pd.read_csv(source, dtype="string")
+    raw.columns = raw.columns.str.strip().str.lower()
+    return _coerce(raw)
 
 
 def read_entra(source: str | Path | io.BytesIO) -> pd.DataFrame:
     """Map an Entra sign-in export onto the canonical schema."""
-    raw = pd.read_csv(source)
+    raw = pd.read_csv(source, dtype="string")
     # Graph exports nest fields; flatten "a.b.c" to "a_b_c" before matching.
     raw.columns = [c.strip().replace(".", "_") for c in raw.columns]
     lookup = {c.lower(): c for c in raw.columns}

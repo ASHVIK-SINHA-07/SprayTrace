@@ -97,8 +97,9 @@ Switch to `docs/eval_results.md`.
 > "Split by whole scenario so no campaign is half-seen in tuning. Tuned on
 > validation, frozen, reported once on held-out test."
 
-> "Baseline F1 0.388. Full fusion **0.981**. Ninety-one percent fewer things for
-> an analyst to open."
+> "Baseline F1 0.388. Full fusion **0.985**. SprayTrace flagged 240 events and grouped
+> them into five campaigns. The baseline flagged 56 events and missed 177
+> labeled attack events."
 
 Then volunteer the negatives before anyone asks:
 
@@ -127,7 +128,7 @@ Then volunteer the negatives before anyone asks:
 
 **"Is this just a threshold?"**
 No. The spray statistic is cross-user, and the distributed detector groups by
-time window rather than by source. That is what the 0.388 versus 0.981 gap
+time window rather than by source. That is what the 0.388 versus 0.985 gap
 measures — the baseline *is* the threshold approach.
 
 **"Your data is synthetic, so isn't this circular?"**

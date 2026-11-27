@@ -154,6 +154,6 @@ invalidate every metric is made structurally hard, not merely discouraged.
 | Full dataset | 11,229 → 1,329 escalatable → **29 campaigns** |
 | Held-out test | 3,894 → 240 → 5 campaigns |
 | Baseline F1 | **0.388** |
-| SprayTrace F1 | **0.981** |
-| Noise reduction | **91.1%** |
-| Tests | 47 passing |
+| SprayTrace F1 | **0.985** |
+| Held-out event alerts | 56 baseline, 240 SprayTrace |
+| Tests | 55 passing |

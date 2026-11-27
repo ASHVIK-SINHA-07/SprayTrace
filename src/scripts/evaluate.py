@@ -1,8 +1,8 @@
 """Measure SprayTrace honestly. Protocol in docs/eval_spec.md.
 
 Split by whole scenario -> grid search on validation -> freeze -> report once on
-held-out test. Writes docs/eval_results.md and docs/eval_results.json, and
-stamps the frozen configuration into configs/thresholds.yaml.
+held-out test. Writes docs/eval_results.md and docs/eval_results.json.
+Use --freeze to adopt the validation recommendation before running the test.
 
 Run: python -m src.scripts.evaluate
 """
@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from dataclasses import dataclass, asdict
+from collections.abc import Iterable
+from copy import deepcopy
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from itertools import product
 
@@ -28,6 +30,7 @@ from src.backend.config import (
 )
 from src.backend.correlation import build_campaigns
 from src.backend.detection import (
+    ALERT_COLUMNS,
     detect_brute_force,
     detect_distributed_spray,
     detect_impossible_travel,
@@ -135,72 +138,108 @@ def flagged_from(scored: pd.DataFrame, gate: float) -> set[int]:
     return set(scored[scored["risk"] >= gate]["event_id"].astype(int))
 
 
+def combine_alerts(frames: Iterable[pd.DataFrame]) -> pd.DataFrame:
+    nonempty = [frame for frame in frames if not frame.empty]
+    return pd.concat(nonempty, ignore_index=True) if nonempty else pd.DataFrame(columns=ALERT_COLUMNS)
+
+
 def grid_search(
-    events: pd.DataFrame, truth: pd.DataFrame, base: dict
-) -> tuple[dict, list[dict]]:
-    """Tune on validation only. Returns the frozen config and the trace."""
-    scorer = AnomalyScorer(base).fit(events)
-    anomaly = scorer.score(events)
-
-    trace: list[dict] = []
-    best: tuple[float, dict] | None = None
-
-    theta_b_options = [5, 8, 12]
-    theta_u_options = [12, 15, 18]
+    training: pd.DataFrame, validation: pd.DataFrame, truth: pd.DataFrame, base: dict
+) -> tuple[dict, dict, list[dict]]:
+    """Select operating-policy candidates on validation with train-fitted models."""
+    candidates_b = [5, 8, 12]
+    candidates_u = [12, 15, 18]
+    base_weights = base["fusion"]["weights"]
+    weight_options = [
+        base_weights,
+        {"brute_force": 0.20, "password_spray": 0.25, "distributed_spray": 0.25,
+         "impossible_travel": 0.15, "isolation_forest": 0.15},
+        {"brute_force": 0.25, "password_spray": 0.15, "distributed_spray": 0.20,
+         "impossible_travel": 0.25, "isolation_forest": 0.15},
+        {"brute_force": 0.45, "password_spray": 0.10, "distributed_spray": 0.25,
+         "impossible_travel": 0.10, "isolation_forest": 0.10},
+        {"brute_force": 0.20, "password_spray": 0.45, "distributed_spray": 0.15,
+         "impossible_travel": 0.10, "isolation_forest": 0.10},
+        {"brute_force": 0.20, "password_spray": 0.10, "distributed_spray": 0.45,
+         "impossible_travel": 0.15, "isolation_forest": 0.10},
+        {"brute_force": 0.20, "password_spray": 0.10, "distributed_spray": 0.15,
+         "impossible_travel": 0.45, "isolation_forest": 0.10},
+    ]
     floor_options = [
-        {"brute_force": 0.45, "password_spray": 0.45,
-         "distributed_spray": 0.45, "impossible_travel": 0.41},
+        base["fusion"].get("rule_floor"),
         {"brute_force": 0.50, "password_spray": 0.50,
          "distributed_spray": 0.50, "impossible_travel": 0.42},
         {"brute_force": 0.60, "password_spray": 0.60,
          "distributed_spray": 0.55, "impossible_travel": 0.45},
     ]
+    fusion_options = [(base_weights, floors) for floors in floor_options if floors is not None]
+    fusion_options += [(weights, None) for weights in weight_options]
 
-    for theta_b, theta_u, floors in product(
-        theta_b_options, theta_u_options, floor_options
-    ):
-        config = json.loads(json.dumps(base))
-        config["brute_force"]["theta_b"] = theta_b
-        config["password_spray"]["theta_u"] = theta_u
-        config["fusion"]["rule_floor"] = floors
+    config = deepcopy(base)
+    brute = {}
+    for theta in candidates_b:
+        config["brute_force"]["theta_b"] = theta
+        brute[theta] = detect_brute_force(validation, config)
+    spray = {}
+    for theta in candidates_u:
+        config["password_spray"]["theta_u"] = theta
+        spray[theta] = detect_password_spray(validation, config)
+    distributed = detect_distributed_spray(validation, base)
+    travel = detect_impossible_travel(validation, base)
 
-        alerts = pd.concat(
-            [f for f in detector_alerts(events, config).values() if not f.empty]
-        ) if any(not f.empty for f in detector_alerts(events, config).values()) else pd.DataFrame(
-            columns=["event_id", "detector", "score", "attack_technique", "evidence"]
-        )
-        scored = fuse(events, alerts, anomaly, config)
-        result = score(
-            flagged_from(scored, config["gate"]["medium"]), truth, "candidate"
-        )
+    anomaly_by_contamination = {}
+    for contamination in (0.01, 0.02):
+        config["isolation_forest"]["contamination"] = contamination
+        anomaly_by_contamination[contamination] = AnomalyScorer(config).fit(training).score(validation)
 
-        trace.append(
-            {
-                "theta_b": theta_b,
-                "theta_u": theta_u,
-                "floors": floors,
-                "precision": result.precision,
-                "recall": result.recall,
-                "f1": result.f1,
-            }
-        )
-        if best is None or result.f1 > best[0]:
-            best = (result.f1, config)
+    gate = base["gate"]["medium"]
+    medium_options = sorted({round(gate - 0.05, 2), gate, round(gate + 0.05, 2)})
+    positives = set(truth.loc[truth["attack_label"], "event_id"])
+    trace = []
+    best = best_weighted = None
+    for theta_b, theta_u in product(candidates_b, candidates_u):
+        alerts = combine_alerts((brute[theta_b], spray[theta_u], distributed, travel))
+        for (weights, floors), (contamination, anomaly) in product(
+            fusion_options, anomaly_by_contamination.items()
+        ):
+            config["brute_force"]["theta_b"] = theta_b
+            config["password_spray"]["theta_u"] = theta_u
+            config["fusion"] = {"weights": weights, "rule_floor": floors}
+            config["isolation_forest"]["contamination"] = contamination
+            scored = fuse(validation, alerts, anomaly, config)
+            for medium in medium_options:
+                flagged = flagged_from(scored, medium)
+                tp = len(flagged & positives)
+                fn = len(positives) - tp
+                f1 = 2 * tp / (len(flagged) + len(positives)) if flagged or positives else 0.0
+                trace.append({
+                    "theta_b": theta_b, "theta_u": theta_u, "weights": weights,
+                    "floors": floors, "contamination": contamination,
+                    "medium_gate": medium, "f1": round(f1, 4), "false_negatives": fn,
+                })
 
-    assert best is not None
-    return best[1], trace
+                # The other gates are sensitivity checks. Select for the
+                # submitted operating policy, which stays fixed on adoption.
+                if medium != gate:
+                    continue
+                rank = (f1, -fn)
+                if best is None or rank > best[0]:
+                    best = (rank, deepcopy(config))
+                if floors is None and (best_weighted is None or rank > best_weighted[0]):
+                    best_weighted = (rank, deepcopy(config))
+
+    assert best is not None and best_weighted is not None
+    return best[1], best_weighted[1], trace
 
 
 def ablation(
     events: pd.DataFrame, truth: pd.DataFrame, config: dict, scorer: AnomalyScorer
-) -> list[Scores]:
+) -> tuple[list[Scores], pd.DataFrame, pd.DataFrame]:
     """Configurations A-F on identical data, features and labels."""
     alerts = detector_alerts(events, config)
     anomaly = scorer.score(events)
     gate = config["gate"]["medium"]
-    empty = pd.DataFrame(
-        columns=["event_id", "detector", "score", "attack_technique", "evidence"]
-    )
+    empty = combine_alerts(())
 
     results: list[Scores] = []
 
@@ -214,9 +253,7 @@ def ablation(
         ("C · Travel only", ["impossible_travel"]),
     ]
     for label, names in singles:
-        subset = pd.concat(
-            [alerts[n] for n in names if not alerts[n].empty]
-        ) if any(not alerts[n].empty for n in names) else empty
+        subset = combine_alerts(alerts[n] for n in names)
         scored = fuse(events, subset, None, config)
         results.append(score(flagged_from(scored, gate), truth, label))
 
@@ -226,60 +263,46 @@ def ablation(
     model_only = fuse(events, empty, anomaly, config)
     results.append(score(flagged_from(model_only, gate), truth, "D · Isolation Forest only"))
 
-    rules = pd.concat(
-        [f for f in alerts.values() if not f.empty]
-    ) if any(not f.empty for f in alerts.values()) else empty
+    rules = combine_alerts(alerts.values())
     rules_only = fuse(events, rules, None, config)
-    results.append(score(flagged_from(rules_only, gate), truth, "E · Rules only (A+B+C)"))
+    results.append(score(flagged_from(rules_only, gate), truth, "E · Rules only"))
 
     full = fuse(events, rules, anomaly, config)
     results.append(score(flagged_from(full, gate), truth, "F · Full fusion"))
 
-    # Noise reduction, measured in the unit an analyst actually triages.
-    #
-    # Comparing raw alert counts is misleading here: SprayTrace detects more
-    # true attacks than the baseline, so it necessarily emits more alerts, and
-    # the ratio reads as negative "reduction" for doing its job better. What
-    # the product actually reduces is the number of things a human opens --
-    # alerts collapse into campaigns. So the comparison is baseline alerts
-    # against SprayTrace campaigns.
-    rules_all = pd.concat(
-        [f for f in alerts.values() if not f.empty]
-    ) if any(not f.empty for f in alerts.values()) else empty
-    full_scored = fuse(events, rules_all, anomaly, config)
-    campaigns, _ = build_campaigns(full_scored, rules_all, config)
-    campaign_count = len(campaigns)
-
     baseline_alerts = len(baseline_flagged)
-    for result in results:
-        if result.name.startswith("Naive") or not baseline_alerts:
-            continue
-        if result.name.startswith("F ·"):
-            result.noise_reduction = round(
-                (baseline_alerts - campaign_count) / baseline_alerts * 100, 1
-            )
+    if baseline_alerts:
+        results[-1].noise_reduction = round(
+            (baseline_alerts - results[-1].alerts) / baseline_alerts * 100, 1
+        )
 
-    return results
+    return results, full, rules
 
 
-def per_type_recall(
-    events: pd.DataFrame, truth: pd.DataFrame, config: dict, scorer: AnomalyScorer
-) -> dict[str, dict]:
-    alerts = detector_alerts(events, config)
-    rules = pd.concat([f for f in alerts.values() if not f.empty])
-    scored = fuse(events, rules, scorer.score(events), config)
-    flagged = flagged_from(scored, config["gate"]["medium"])
-
+def per_type_recall(truth: pd.DataFrame, flagged: set[int]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     attacks = truth[truth["attack_label"]]
     for attack_type, group in attacks.groupby("attack_type"):
-        found = len(set(group["event_id"]) & flagged)
+        matched = group[group["event_id"].isin(flagged)]
         out[str(attack_type)] = {
-            "detected": found,
+            "detected": len(matched),
             "total": len(group),
-            "recall": round(found / len(group), 4) if len(group) else 0.0,
+            "recall": round(len(matched) / len(group), 4),
+            "scenarios_detected": int(matched["scenario_id"].nunique()),
+            "scenarios_total": int(group["scenario_id"].nunique()),
         }
     return out
+
+
+def config_summary(config: dict) -> dict:
+    return {
+        "theta_b": config["brute_force"]["theta_b"],
+        "theta_u": config["password_spray"]["theta_u"],
+        "weights": config["fusion"]["weights"],
+        "rule_floor": config["fusion"].get("rule_floor"),
+        "contamination": config["isolation_forest"]["contamination"],
+        "gate": config["gate"],
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -292,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
     truth = pd.read_csv(GROUND_TRUTH_CSV)
     base = load_config()
 
+    if not truth["event_id"].is_unique or set(truth["event_id"]) != set(events["event_id"]):
+        raise ValueError("The canonical events and ground truth must have matching unique event IDs.")
+
     splits = split_by_scenario(truth)
     print("scenarios per split:", {k: len(v) for k, v in splits.items()})
 
@@ -300,44 +326,64 @@ def main(argv: list[str] | None = None) -> int:
     train_events, _ = events_for(events, truth, splits["train"])
 
     print(f"\ntuning on validation ({len(validation_events):,} events)…")
-    frozen, trace = grid_search(validation_events, validation_truth, base)
-    print(
-        f"  chosen: theta_b={frozen['brute_force']['theta_b']} "
-        f"theta_u={frozen['password_spray']['theta_u']} "
-        f"floors={frozen['fusion']['rule_floor']}"
+    recommended, weighted_config, trace = grid_search(
+        train_events, validation_events, validation_truth, base
     )
+    frozen = recommended if args.freeze else base
+    if args.freeze:
+        frozen["calibrated"] = True
+        frozen["version"] = int(base.get("version", 0)) + 1
+        save_config(frozen)
+        print("froze validation-selected configuration to configs/thresholds.yaml")
 
-    # The model is fitted on train only: fitting it on the data it scores would
-    # let it calibrate its percentiles to the test set's attack density.
     scorer = AnomalyScorer(frozen).fit(train_events)
+    print(f"\nreporting on held-out test ({len(test_events):,} events)…")
+    results, scored, rules = ablation(test_events, test_truth, frozen, scorer)
+    by_type = per_type_recall(test_truth, flagged_from(scored, frozen["gate"]["medium"]))
 
-    print(f"\nreporting once on held-out test ({len(test_events):,} events)…")
-    results = ablation(test_events, test_truth, frozen, scorer)
-    by_type = per_type_recall(test_events, test_truth, frozen, scorer)
-
-    alerts = detector_alerts(test_events, frozen)
-    rules = pd.concat([f for f in alerts.values() if not f.empty])
-    scored = fuse(test_events, rules, scorer.score(test_events), frozen)
     campaigns, _ = build_campaigns(scored, rules, frozen)
+    weighted_rules = combine_alerts(detector_alerts(test_events, weighted_config).values())
+    weighted_scorer = AnomalyScorer(weighted_config).fit(train_events)
+    weighted_scored = fuse(
+        test_events, weighted_rules, weighted_scorer.score(test_events), weighted_config
+    )
+    results.append(score(
+        flagged_from(weighted_scored, weighted_config["gate"]["medium"]),
+        test_truth, "G · Tuned weighted fusion without rule floors",
+    ))
 
+    sensitivity = []
+    gates = frozen["gate"]
+    for gate in sorted({row["medium_gate"] for row in trace} | {gates["high"], gates["critical"]}):
+        flagged = flagged_from(scored, gate)
+        row = score(flagged, test_truth, f"{gate:.2f}")
+        baseline_alerts = results[0].alerts
+        sensitivity.append({
+            "gate": gate, "alerts": row.alerts, "false_negatives": row.false_negatives,
+            "alert_reduction": round((baseline_alerts - row.alerts) / baseline_alerts * 100, 1)
+            if baseline_alerts else None,
+        })
+
+    baseline_alerts = results[0].alerts
     payload = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        "calibrated": True,
-        "protocol": "split by whole scenario; tuned on validation; reported once on test",
+        "calibrated": bool(frozen.get("calibrated")),
+        "protocol": (
+            "whole-scenario split, train-fitted models, validation-only calibration, held-out test"
+        ),
         "splits": {k: {"scenarios": len(v)} for k, v in splits.items()},
         "test_events": int(len(test_events)),
-        "frozen_config": {
-            "theta_b": frozen["brute_force"]["theta_b"],
-            "theta_u": frozen["password_spray"]["theta_u"],
-            "rule_floor": frozen["fusion"]["rule_floor"],
-            "gate": frozen["gate"],
-        },
+        "frozen_config": config_summary(frozen),
+        "validation_recommendation": config_summary(recommended),
+        "weighted_ablation_config": config_summary(weighted_config),
         "configurations": [asdict(r) for r in results],
         "per_attack_type": by_type,
+        "gate_sensitivity": sensitivity,
         "reduction": {
             "raw_events": int(len(test_events)),
-            "escalatable": int((scored["risk"] >= frozen["gate"]["medium"]).sum()),
+            "escalatable": int((scored["risk"] >= gates["medium"]).sum()),
             "campaigns": int(len(campaigns)),
+            "baseline_event_alerts": baseline_alerts,
         },
         "grid_search_points": len(trace),
     }
@@ -346,27 +392,23 @@ def main(argv: list[str] | None = None) -> int:
     (DOCS / "eval_results.json").write_text(json.dumps(payload, indent=2))
     (DOCS / "eval_results.md").write_text(render_markdown(payload))
 
-    if args.freeze:
-        frozen["calibrated"] = True
-        frozen["version"] = int(base.get("version", 0)) + 1
-        save_config(frozen)
-        print("\nfroze configuration to configs/thresholds.yaml")
-
     print_summary(payload)
     return 0
 
 
 def print_summary(payload: dict) -> None:
-    print("\n" + "─" * 74)
-    print(f"{'configuration':<30} {'P':>7} {'R':>7} {'F1':>7} {'alerts':>8} {'noise↓':>8}")
-    print("─" * 74)
+    width = max(len(row["name"]) for row in payload["configurations"])
+    separator = "─" * (width + 43)
+    print("\n" + separator)
+    print(f"{'configuration':<{width}} {'P':>7} {'R':>7} {'F1':>7} {'alerts':>8} {'alert Δ':>9}")
+    print(separator)
     for row in payload["configurations"]:
         noise = f"{row['noise_reduction']}%" if row["noise_reduction"] is not None else "—"
         print(
-            f"{row['name']:<30} {row['precision']:>7.3f} {row['recall']:>7.3f} "
-            f"{row['f1']:>7.3f} {row['alerts']:>8} {noise:>8}"
+            f"{row['name']:<{width}} {row['precision']:>7.3f} {row['recall']:>7.3f} "
+            f"{row['f1']:>7.3f} {row['alerts']:>8} {noise:>9}"
         )
-    print("─" * 74)
+    print(separator)
     reduction = payload["reduction"]
     print(
         f"\n{reduction['raw_events']:,} test events → "
@@ -383,90 +425,87 @@ def render_markdown(payload: dict) -> str:
         "",
         f"Generated {payload['generated']}. Protocol: {payload['protocol']}.",
         "",
-        "These replace the TBM cells in the submitted report. Every figure below",
-        "is measured on held-out test scenarios with the configuration frozen",
-        "beforehand on validation data.",
+        "Full fusion uses the operating configuration in `configs/thresholds.yaml`.",
+        "The validation recommendation is written to that file only with `--freeze`.",
         "",
-        "## Frozen configuration",
-        "",
-        "```",
-        f"theta_b    {payload['frozen_config']['theta_b']}",
-        f"theta_u    {payload['frozen_config']['theta_u']}",
-        f"rule_floor {payload['frozen_config']['rule_floor']}",
-        f"gate       {payload['frozen_config']['gate']}",
-        "```",
-        "",
-        f"Chosen from {payload['grid_search_points']} grid points on validation.",
-        "",
-        "## Ablation (identical data, features and labels)",
-        "",
-        "| Configuration | Precision | Recall | F1 | Alerts | Alert-to-TP | Noise reduction |",
-        "|---|---:|---:|---:|---:|---:|---:|",
     ]
+    for title, key in (
+        ("Operating configuration", "frozen_config"),
+        ("Validation recommendation", "validation_recommendation"),
+        ("Weighted-only ablation configuration", "weighted_ablation_config"),
+    ):
+        lines.extend([f"## {title}", "", "```"])
+        lines.extend(f"{name:<14} {value}" for name, value in payload[key].items())
+        lines.extend(["```", ""])
+
+    lines.extend([
+        f"Validation evaluated {payload['grid_search_points']} combinations including gate cutoffs.",
+        "",
+        "## Held-out ablation",
+        "",
+        "| Configuration | Precision | Recall | F1 | Alerts | FP | FN | Alert-to-TP | Event-alert reduction |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
     for row in payload["configurations"]:
-        if row["noise_reduction"] is not None:
-            noise = f"{row['noise_reduction']}%"
-        elif row["name"].startswith("Naive"):
-            noise = "reference"
-        else:
-            noise = "n/a"
+        reduction = row["noise_reduction"]
+        reduction_text = f"{reduction:+.1f}%" if reduction is not None else "—"
         ratio = row["alert_to_tp"] if row["alert_to_tp"] is not None else "—"
         lines.append(
             f"| {row['name']} | {row['precision']:.3f} | {row['recall']:.3f} | "
-            f"{row['f1']:.3f} | {row['alerts']} | {ratio} | {noise} |"
+            f"{row['f1']:.3f} | {row['alerts']} | {row['false_positives']} | "
+            f"{row['false_negatives']} | {ratio} | {reduction_text} |"
         )
 
-    reduction = payload["reduction"]
-    lines += [
+    lines.extend([
         "",
         "## Recall by attack type",
         "",
-        "| Attack type | Detected | Total | Recall |",
-        "|---|---:|---:|---:|",
-    ]
+        "A scenario is detected when at least one labeled attack event crosses the gate.",
+        "",
+        "| Attack type | Events detected | Events labeled | Event recall | Scenarios detected |",
+        "|---|---:|---:|---:|---:|",
+    ])
     for name, stats in payload["per_attack_type"].items():
         lines.append(
-            f"| {name} | {stats['detected']} | {stats['total']} | {stats['recall']:.3f} |"
+            f"| {name} | {stats['detected']} | {stats['total']} | {stats['recall']:.3f} | "
+            f"{stats['scenarios_detected']}/{stats['scenarios_total']} |"
         )
 
-    lines += [
+    reduction = payload["reduction"]
+    lines.extend([
         "",
-        "## Reduction",
+        "## Event and campaign counts",
         "",
         f"**{reduction['raw_events']:,} test events → {reduction['escalatable']} "
-        f"escalatable → {reduction['campaigns']} campaigns.**",
+        f"escalatable events → {reduction['campaigns']} campaigns.**",
         "",
-        "## Reading these numbers",
+        f"The baseline flags {reduction['baseline_event_alerts']} events. Event-alert reduction "
+        "uses event counts for both systems. The campaign count describes how SprayTrace "
+        "groups its escalations for review.",
         "",
-        "- **The baseline fails on spray, which is the point.** A naive per-user",
-        "  and per-IP failure counter reaches F1 0.388 here: it catches brute",
-        "  force (recall 1.000 on that type) and almost nothing else. Password",
-        "  spraying is built to stay under exactly those counters.",
-        "- **Per-source spray detection scores 0.000 on this split.** The",
-        "  distributed scenarios rotate across 20-28 addresses, which puts every",
-        "  single source below theta_u. That is not a bug in the rule; it is the",
-        "  per-source blind spot the distributed detector exists to cover, and it",
-        "  is why both statistics ship.",
-        "- **The Isolation Forest contributes no standalone detections** (D scores",
-        "  0.000) and full fusion equals rules-only. Reported rather than tuned",
-        "  away: this is risk #3 in the submitted report, and the honest reading",
-        "  is that on synthetic data whose attacks the rules already encode, the",
-        "  model adds tier separation but no new coverage. Its value would appear",
-        "  against behaviour nobody programmed a rule for.",
-        "- Noise reduction compares baseline alerts against SprayTrace campaigns,",
-        "  because that is the unit an analyst opens. Comparing raw alert counts",
-        "  would read as negative reduction purely because SprayTrace detects more",
-        "  real attacks.",
-        "- Splits are by whole scenario, so no campaign is partly seen in tuning",
-        "  and partly scored at test.",
-        "- The Isolation Forest is fitted on train only. Fitting it on the data it",
-        "  scores would let its percentile constants calibrate to the test set's",
-        "  attack density.",
-        "- Impossible-travel false positives include correct detections against an",
-        "  incomplete label; see the artifact note in `docs/eval_spec.md`.",
-        "- Synthetic ground truth cannot reproduce production behaviour. These are",
-        "  measurements on controlled data, not a claim about live tenants.",
-    ]
+        "## Gate sensitivity",
+        "",
+        "| Risk cutoff | Event alerts | False negatives | Event-alert reduction vs baseline |",
+        "|---|---:|---:|---:|",
+    ])
+    for row in payload["gate_sensitivity"]:
+        reduction = row["alert_reduction"]
+        reduction_text = f"{reduction:+.1f}%" if reduction is not None else "—"
+        lines.append(
+            f"| {row['gate']:.2f} | {row['alerts']} | {row['false_negatives']} | {reduction_text} |"
+        )
+
+    lines.extend([
+        "",
+        "## Measurement notes",
+        "",
+        "- The Isolation Forest is fitted on train for both validation and test.",
+        "  Contamination changes the prediction offset. The scores used in fusion",
+        "  are derived from `score_samples`, which is independent of that offset.",
+        "- A benign sign-in adjacent to a planted impossible-travel pair may also",
+        "  imply impossible speed and count as an event-level false positive.",
+        "- These measurements describe the generated scenarios and labels.",
+    ])
     return "\n".join(lines) + "\n"
 
 

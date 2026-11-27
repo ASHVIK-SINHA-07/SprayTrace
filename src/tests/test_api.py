@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from src.backend import store
 from src.backend.config import EVENTS_CSV
 from src.backend.main import app
+from src.backend.normalize import read_events
 
 pytestmark = pytest.mark.skipif(
     not EVENTS_CSV.exists(), reason="run: python -m src.scripts.generate_data"
@@ -133,6 +134,52 @@ def test_unrecognised_csv_is_rejected(client: TestClient) -> None:
         "/api/analyze", files={"file": ("junk.csv", buffer, "text/csv")}
     )
     assert response.status_code == 400
+
+
+def test_canonical_reader_preserves_event_ids_and_quarantines_invalid_timestamps() -> None:
+    buffer = io.BytesIO(
+        b"event_id,timestamp,username,source_ip,success\n"
+        b"12,2026-10-02T00:00:00Z,third,192.0.2.1,True\n"
+        b"9,invalid,quarantined,192.0.2.1,True\n"
+        b"4,2026-10-01T00:00:00Z,first,192.0.2.1,True\n"
+        b"7,2026-10-01T00:00:00Z,second,192.0.2.1,True\n"
+    )
+    frame = read_events(buffer)
+    assert frame.attrs["quarantined"] == 1
+    assert frame["event_id"].tolist() == [4, 7, 12]
+    assert frame["username"].tolist() == ["first", "second", "third"]
+
+
+def test_entra_success_code_is_preserved_next_to_missing_result() -> None:
+    buffer = io.BytesIO(
+        b"TimeGenerated,UserPrincipalName,IPAddress,ResultType\n"
+        b"2026-10-01T00:00:00Z,user,192.0.2.1,0\n"
+        b"2026-10-01T00:00:01Z,user,192.0.2.1,\n"
+        b"2026-10-01T00:00:02Z,user,192.0.2.1,50126\n"
+    )
+    assert read_events(buffer)["success"].tolist() == [True, False, False]
+
+
+def test_empty_campaigns_support_detail_and_injection(client: TestClient) -> None:
+    buffer = io.BytesIO(
+        b"event_id,timestamp,username,source_ip,success\n"
+        b"9223372036854775807,2026-10-01T00:00:00Z,user,192.0.2.1,True\n"
+    )
+    try:
+        response = client.post(
+            "/api/analyze", files={"file": ("one.csv", buffer, "text/csv")}
+        )
+        assert response.status_code == 200
+        assert response.json()["campaigns"] == 0
+        assert client.get("/api/campaigns/CAMP-001").status_code == 404
+        response = client.post("/api/inject")
+        assert response.status_code == 200
+        assert response.json()["campaign"] is None
+        assert {event["event_id"] for event in client.get("/api/events").json()} == {
+            0, 1, 9223372036854775807,
+        }
+    finally:
+        store.reset()
 
 
 def test_inject_creates_a_new_campaign(client: TestClient) -> None:
