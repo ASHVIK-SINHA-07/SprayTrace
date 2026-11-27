@@ -55,13 +55,14 @@ Noise-reduction cell says **TBM (to be measured)**. They are measured now:
 | Naive threshold baseline | 1.000 | 0.240 | 0.388 | 56 |
 | A · Brute force only | 1.000 | 0.232 | 0.376 | 54 |
 | B · Per-source spray only | 0.000 | 0.000 | 0.000 | 0 |
-| B2 · Distributed spray only | 0.974 | 0.816 | 0.888 | 195 |
+| B2 · Distributed spray only | 0.980 | 0.820 | 0.892 | 195 |
 | C · Travel only | 0.727 | 0.034 | 0.066 | 11 |
 | D · Isolation Forest only | 0.000 | 0.000 | 0.000 | 0 |
-| E · Rules only | 0.967 | 0.996 | 0.981 | 240 |
-| **F · Full fusion** | **0.967** | **0.996** | **0.981** | **240** |
+| E · Rules only | 0.971 | 1.000 | 0.985 | 240 |
+| **F · Full fusion** | **0.971** | **1.000** | **0.985** | **240** |
 
-Held-out test: 3,894 events, 26 scenarios. Noise reduction **91.1%**.
+The held-out split contains 3,894 events across 26 scenarios. SprayTrace produced
+240 event alerts and five campaigns. The baseline produced 56 event alerts.
 
 ### 5 · Slide 6 "10,000 → 3-5"
 

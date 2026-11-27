@@ -7,10 +7,14 @@ fabricated high one — judges will ask how it was computed.
 ## Protocol
 
 1. Split by whole `scenario_id` into train / validation / test.
-2. Grid search on **validation only**: θB ∈ {5, 8, 12}, θU around 15, fusion
-   weights `wi`, contamination ∈ {0.01, 0.02}, gate τ.
-3. **Freeze** the configuration to `configs/thresholds.yaml`.
-4. Report once on held-out test scenarios. No tuning after this point.
+2. Fit the Isolation Forest and its scaling percentiles on **train**.
+3. Search on **validation** with θB ∈ {5, 8, 12}, θU ∈ {12, 15, 18},
+   contamination ∈ {0.01, 0.02}, and alternative medium cutoffs. Compare tuned
+   weighted-only configurations with the rule-floor variants.
+4. Evaluate the checked-in configuration by default. Pass `--freeze` to write
+   the validation recommendation to `configs/thresholds.yaml` before scoring
+   the test split. Selection uses the operating medium cutoff of 0.40.
+5. Report on held-out test scenarios. No tuning after this point.
 
 Reporting a number that was tuned on the same split it is measured on is the
 single easiest way to lose credibility in questioning.
@@ -31,6 +35,7 @@ reference for noise reduction.
 | D | Isolation Forest only |
 | E | Rules only (A+B+C) |
 | F | Full fusion |
+| G | Validation-tuned weighted fusion without rule floors |
 
 All on identical data, features and labels. Same-data ablation is the only valid
 comparison — published numbers from other datasets differ in schema, labels and
@@ -49,6 +54,9 @@ Noise reduction % = (BaselineAlerts − SprayTraceAlerts) / BaselineAlerts × 10
 Report per attack type as well as overall — a detector that nails spray and misses
 travel entirely should not hide behind an average.
 
+Both alert counts use event IDs. Report campaign count separately to show how
+SprayTrace groups escalated events for review.
+
 ## Output
 
 `docs/eval_results.md`, written by `src/scripts/evaluate.py`, with the frozen
@@ -61,9 +69,6 @@ move, and it reads as rigor rather than weakness.
 
 ## Known measurement artifact: travel false positives
 
-Rules-only on the current dataset gives P=0.936 / R=1.000, and **every false
-positive comes from `impossible_travel`**.
-
 Cause: a planted travel attack puts the victim in an attacker city, but that
 user's ordinary background traffic continues from their office. The detector
 pairs the attacker login with the victim's next normal login and reports a real
@@ -75,6 +80,6 @@ events as attacks until the metric improves is how synthetic evaluations become
 meaningless -- the report's own risk #1. The number stands, and the artifact is
 explained here and in `docs/eval_results.md`.
 
-The honest reading: travel precision on *scenario* granularity is higher than the
-event-level figure suggests, because these are correct detections against an
-incomplete label. Report both, and say which is which.
+The results show event-level precision and how many labeled travel scenarios
+were detected. A scenario is detected when any of its labeled attack events
+crosses the gate.

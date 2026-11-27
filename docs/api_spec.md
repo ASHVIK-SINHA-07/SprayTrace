@@ -25,7 +25,11 @@ both together.
 - `/api/audit` exists because the report promises low-risk events are "retained in
   an audit log for retrospective hunting". A gate nobody can inspect is a claim,
   not a control.
-- `/api/inject` returns the campaign it created so the UI can highlight it. It
-  mutates in-memory state only; `data/raw/` stays immutable.
+- `/api/inject` returns the campaign containing the injected events so the UI
+  can highlight it. A successful injection can return `campaign: null` when
+  the current dataset has too few targets to form a campaign. Injection mutates
+  in-memory state only.
+- Campaign detail returns HTTP 404 for missing IDs, including when the current
+  analysis has zero campaigns.
 - Analysis results are held in a module-level store. Single-user demo, so no
   database — `docs/data_spec.md` keeps the schema honest regardless.

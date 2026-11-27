@@ -12,6 +12,12 @@ judges. Where `instructions.md` disagrees, this file wins.
 | Impossible travel | per user, consecutive successes by time | haversine `d`, implied `v = d/Δt` | `v > 1000` km/h | T1078 |
 | Isolation Forest | per user/session feature vector | `a(x) = -score_samples(x)` rescaled | no standalone alert, contributes `I` | — |
 
+The per-source spray detector evaluates maximal 60-minute windows anchored on
+observed failures. An alert uses the window with the most distinct users that
+contains that event, breaking ties with the higher attempt count. The submitted
+reference breadth is 15. The checked-in operating breadth is 12, one of the
+validation candidates.
+
 ### SprayScore
 
 ```
@@ -32,7 +38,7 @@ d = R · c                     R = 6371 km
 v = d / Δt(hours)             flag if v > 1000 km/h
 ```
 
-Guards: require `Δt > 0`; skip identical or missing coordinates. Commercial flight
+Guards: require `Δt > 0`; skip identical, missing, or out-of-range coordinates. Commercial flight
 is ~900 km/h, so 1000 is the boundary — legitimate travel must stay below it.
 
 ### Cyclic hour encoding

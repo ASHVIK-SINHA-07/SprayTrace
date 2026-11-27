@@ -30,10 +30,10 @@ Now the per-IP counter is quiet too.
 |---|---|
 | **11,229 → 1,329 → 29** | raw events → escalatable → campaigns, on the full dataset |
 | **0.388** | F1 of a naive per-user/per-IP threshold detector (what most shops run) |
-| **0.981** | F1 of SprayTrace, same data, same labels, same split |
-| **91.1%** | noise reduction, measured in campaigns — what an analyst opens |
+| **0.985** | F1 of SprayTrace, same data, same labels, same split |
+| **56 vs. 240** | baseline and SprayTrace event alerts on the held-out split, with SprayTrace alerts grouped into five campaigns |
 
-If you remember nothing else: **0.388 versus 0.981**. That gap is the project.
+If you remember nothing else: **0.388 versus 0.985**. That gap is the project.
 
 ### The honest answer nobody should dodge
 
@@ -271,11 +271,11 @@ Read: `docs/eval_spec.md`, `docs/eval_results.md`. Know this table:
 | Naive threshold baseline | 1.000 | 0.240 | 0.388 |
 | A · Brute force only | 1.000 | 0.232 | 0.376 |
 | B · Per-source spray only | 0.000 | 0.000 | 0.000 |
-| B2 · Distributed spray only | 0.974 | 0.816 | 0.888 |
+| B2 · Distributed spray only | 0.980 | 0.820 | 0.892 |
 | C · Travel only | 0.727 | 0.034 | 0.066 |
 | D · Isolation Forest only | 0.000 | 0.000 | 0.000 |
-| E · Rules only | 0.967 | 0.996 | 0.981 |
-| **F · Full fusion** | **0.967** | **0.996** | **0.981** |
+| E · Rules only | 0.971 | 1.000 | 0.985 |
+| **F · Full fusion** | **0.971** | **1.000** | **0.985** |
 
 **The protocol is your strongest card.** Say it unprompted:
 
@@ -283,7 +283,7 @@ Read: `docs/eval_spec.md`, `docs/eval_results.md`. Know this table:
 > half-scored at test. Tuned on validation only, frozen, then reported once on
 > held-out test. 33 train / 25 validation / 26 test scenarios."
 
-Per-type recall: brute force 54/54, impossible travel 8/8, spray 170/171.
+Per-type recall: brute force 54/54, impossible travel 8/8, spray 171/171.
 
 **MITRE mapping** — know these four cold:
 - T1110.001 Brute Force: Password Guessing
@@ -335,7 +335,7 @@ If the venue network dies, you still have a demo.
 5. What stops a corporate NAT from being flagged? *(Shuryansh)*
 6. How would this run on real Microsoft data? *(Kapil)*
 7. What happens to suppressed events? *(Kapil)*
-8. Why should I trust 0.981? *(Abhash)*
+8. Why should I trust 0.985? *(Abhash)*
 9. Why does the ML layer contribute nothing? *(Abhash)*
 10. What's your false positive rate in production? *(Abhash)*
 11. Show me why that alert fired. *(Atharva)*

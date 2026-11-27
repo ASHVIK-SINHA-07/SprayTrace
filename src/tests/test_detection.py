@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
+from src.backend.baseline import naive_threshold_alerts
 from src.backend.config import load_config
 from src.backend.detection import (
     detect_brute_force,
@@ -61,6 +62,19 @@ def test_spray_worked_example_fires() -> None:
     evidence = alerts.iloc[0]["evidence"]
     assert "42 distinct usernames" in evidence
     assert "SprayScore 0.50" in evidence
+    assert alerts["score"].eq(0.5).all()
+
+
+def test_spray_window_can_cross_both_previous_bucket_boundaries() -> None:
+    theta = load_config()["password_spray"]["theta_u"]
+    rows = [
+        _event(i, START + timedelta(minutes=28 if i <= theta // 2 else 61),
+               f"user{i}@contoso.com", "203.0.113.7", False)
+        for i in range(theta + 1)
+    ]
+    alerts = detect_password_spray(_frame(rows))
+    assert set(alerts["event_id"]) == set(range(theta + 1))
+    assert alerts["score"].eq(1).all()
 
 
 def test_brute_force_burst_does_not_fire_spray() -> None:
@@ -137,6 +151,21 @@ def test_brute_force_spread_over_hours_stays_quiet() -> None:
     assert detect_brute_force(_frame(rows)).empty
 
 
+def test_failure_windows_exclude_isolated_events_between_bursts() -> None:
+    theta = load_config()["brute_force"]["theta_b"]
+    offsets = [*range(theta + 1), 3_900, *range(7_800, 7_800 + theta + 2)]
+    events = _frame([
+        _event(i, START + timedelta(seconds=offset), "victim", "192.0.2.7", False)
+        for i, offset in enumerate(offsets)
+    ])
+    burst_ids = set(range(len(events))) - {theta + 1}
+    alerts = detect_brute_force(events).set_index("event_id")
+    assert set(alerts.index) == burst_ids
+    assert f"{theta + 1} failed sign-ins" in alerts.loc[0, "evidence"]
+    assert f"{theta + 2} failed sign-ins" in alerts.loc[len(events) - 1, "evidence"]
+    assert naive_threshold_alerts(events, per_user=theta) == burst_ids
+
+
 # ------------------------------------------------------ impossible travel
 
 def test_impossible_travel_worked_example_fires() -> None:
@@ -178,6 +207,15 @@ def test_identical_coordinates_are_skipped() -> None:
         _event(0, START, "user@contoso.com", "10.0.0.1", True, DELHI),
         _event(1, START + timedelta(seconds=5), "user@contoso.com",
                "10.0.0.2", True, DELHI),
+    ]
+    assert detect_impossible_travel(_frame(rows)).empty
+
+
+@pytest.mark.parametrize("longitude", [float("nan"), float("inf"), 181.0])
+def test_missing_or_invalid_longitude_is_skipped(longitude: float) -> None:
+    rows = [
+        _event(0, START, "user", "192.0.2.8", True, (51.5, longitude, "London", "GB")),
+        _event(1, START + timedelta(minutes=15), "user", "192.0.2.7", True, LONDON),
     ]
     assert detect_impossible_travel(_frame(rows)).empty
 

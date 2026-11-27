@@ -7,7 +7,7 @@ Constants are read from [configs/thresholds.yaml](../configs/thresholds.yaml) at
 runtime — nothing below is hard-coded in the detectors. Thresholds were frozen on
 validation data before the test measurement; see [eval_spec.md](eval_spec.md).
 
-Notation: an *event* is one authentication attempt. A *window* is a trailing or
+Notation: an *event* is one authentication attempt. A *window* is a trailing, event-anchored, or
 tumbling time interval. `𝟙[·]` is the indicator function (1 if true, 0 if false).
 
 ---
@@ -27,7 +27,7 @@ For a set of events `E` inside a window:
 
 ## 2 · Brute force — T1110.001
 
-**Implementation:** [`detect_brute_force`](../src/backend/detection.py#L26)
+**Implementation:** [`detect_brute_force`](../src/backend/detection.py#L53)
 
 Group failures by `(username, source_ip)`. Over a trailing window `W = 5 min`,
 compute the rolling count at each event `t`:
@@ -51,17 +51,19 @@ score  =  min( 1,  ──────────────  +  0.5 )
                    max(θ_B, 1)
 ```
 
-At `B_peak = θ_B + 1` the score is `0.5 + 1/5 = 0.70`; it saturates at `B_peak ≥ 3θ_B = 15`.
+With `θ_B = 5`, the score is 0.70 at `B_peak = 6` and saturates at `B_peak = 8`.
+Each event receives evidence from the highest-count breaching window that
+contains it.
 
 ---
 
 ## 3 · Password spray, per source — T1110.003
 
-**Implementation:** [`detect_password_spray`](../src/backend/detection.py#L84)
+**Implementation:** [`detect_password_spray`](../src/backend/detection.py#L91)
 
-Group failures by `source_ip` into tumbling windows of `W = 60 min`. Each window
-is evaluated twice — at offset `0` and at offset `W/2 = 30 min` — so a campaign
-straddling a bin boundary is not split below the threshold.
+Group failures by `source_ip` and evaluate maximal event-anchored windows of
+`W = 60 min`. For each event, choose the qualifying window with the most
+distinct accounts, breaking ties with the attempt count.
 
 ### SprayScore
 
@@ -93,21 +95,13 @@ fire  ⟺  U > θ_U   ∧   A/U  ≤  m
 
 with `θ_U = 12` (breadth) and `m = 3` max attempts per user (shallowness).
 
-**Confidence score** — driven by how far breadth exceeds the threshold:
-
-```
-                              U − θ_U
-score  =  min( 1,  0.6 + 0.4 · ───────── )     clipped to [0.6, 1.0]
-                                θ_U
-```
-
-Saturates at `U ≥ 2θ_U = 24`.
+The detector emits `score = U/A` for the selected qualifying window.
 
 ---
 
 ## 4 · Distributed spray — T1110.003
 
-**Implementation:** [`detect_distributed_spray`](../src/backend/detection.py#L148)
+**Implementation:** [`detect_distributed_spray`](../src/backend/detection.py#L152)
 
 The key structural difference: **`source_ip` is not in the grouping key.** Any
 statistic computed per source can be defeated by spreading across sources. This
@@ -139,7 +133,7 @@ score  =  min( 1,  0.55 + 0.45 · ────── )      clipped to [0.55, 1.
 
 ## 5 · Impossible travel — T1078
 
-**Implementation:** [`detect_impossible_travel`](../src/backend/detection.py#L228),
+**Implementation:** [`detect_impossible_travel`](../src/backend/detection.py#L236),
 [`src/backend/geo.py`](../src/backend/geo.py)
 
 Per user, sort successful logins by time and test each consecutive pair.
@@ -348,7 +342,7 @@ corroborated rule reach Critical and leaving a lone moderate rule at Medium.
 
 ## 9 · Decision gate
 
-**Implementation:** [`classify`](../src/backend/fusion.py#L104)
+**Implementation:** [`classify`](../src/backend/fusion.py#L109)
 
 ```
              ⎧ critical   R ≥ 0.80      auto-escalate with evidence
@@ -380,20 +374,17 @@ F1         =  ──────────────────────
 Alert-to-TP  =  total alerts / TP
 ```
 
-### Noise reduction
+### Event-alert reduction
 
 ```
-                        Baseline_alerts − SprayTrace_campaigns
-Noise reduction %  =  ──────────────────────────────────────── × 100
-                               Baseline_alerts
+                           Baseline_event_alerts − SprayTrace_event_alerts
+Event-alert reduction % = ──────────────────────────────────────────────── × 100
+                                         Baseline_event_alerts
 ```
 
-Measured against **campaigns**, not raw alerts, because a campaign is the unit an
-analyst actually opens. Comparing raw alert counts would read as *negative*
-reduction purely because SprayTrace detects more real attacks than the baseline.
-
-Measured values: baseline F1 **0.388**, SprayTrace F1 **0.981**, noise reduction
-**91.1 %** — see [eval_results.md](eval_results.md).
+The baseline raised 56 event alerts and SprayTrace raised 240, giving a reduction
+of **−328.6%**. SprayTrace grouped those 240 events into five campaigns. F1 was
+**0.388** for the baseline and **0.985** for SprayTrace. [Evaluation results](eval_results.md).
 
 ---
 

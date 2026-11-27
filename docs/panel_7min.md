@@ -20,7 +20,7 @@ Stop. Do not explain the architecture yet.
 > detector, what most shops actually run — and measured it honestly on held-out
 > data. It scores **F1 0.388**. It catches brute force and almost nothing else."
 
-> "SprayTrace scores **0.981** on the same data, same labels, same split."
+> "SprayTrace scores **0.985** on the same data, same labels, same split."
 
 ## 1:10–3:10 · Live demo (Atharva drives, Ashvik narrates)
 
@@ -93,4 +93,4 @@ present only their best case.
 3. Drop the code walkthrough — **only if the panel is visibly impatient**; it is
    worth 20 marks
 
-Never cut: the injection, the evidence panel, the 0.388/0.981 gap.
+Never cut: the injection, the evidence panel, the 0.388/0.985 gap.

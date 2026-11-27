@@ -348,7 +348,7 @@ one source is loud, the per-source rule already covers it.
 
 Both detectors ship, because they cover each other's blind spots. Section 13 shows
 the per-source rule scoring **0.000** on the held-out test split while the
-distributed rule scores **0.888** — and explains why that is the system working
+distributed rule scores **0.892** — and explains why that is the system working
 as designed rather than a bug.
 
 ### 6.4 Impossible travel — ATT&CK T1078
@@ -590,7 +590,7 @@ results.
 - **Precision** — of everything flagged, what fraction was really an attack
 - **Recall** — of all real attacks, what fraction was caught
 - **F1** — the balance of the two
-- **Noise reduction** — how much less there is for a human to read
+- **Event-alert reduction** — percentage change relative to baseline event alerts
 
 ---
 
@@ -604,7 +604,7 @@ beforehand.
 | | Precision | Recall | F1 |
 |---|---:|---:|---:|
 | Naive threshold baseline | 1.000 | 0.240 | **0.388** |
-| **SprayTrace (full fusion)** | 0.967 | 0.996 | **0.981** |
+| **SprayTrace (full fusion)** | 0.971 | 1.000 | **0.985** |
 
 The baseline has perfect precision — everything it flags is real. But it finds
 **under a quarter** of the attacks. It catches brute force and misses almost
@@ -618,11 +618,11 @@ exactly those counters. That is the entire point.
 | Naive baseline | 1.000 | 0.240 | 0.388 | 56 |
 | A · Brute force only | 1.000 | 0.232 | 0.376 | 54 |
 | B · Per-source spray only | 0.000 | 0.000 | 0.000 | 0 |
-| B2 · Distributed spray only | 0.974 | 0.816 | 0.888 | 195 |
+| B2 · Distributed spray only | 0.980 | 0.820 | 0.892 | 195 |
 | C · Travel only | 0.727 | 0.034 | 0.066 | 11 |
 | D · Isolation Forest only | 0.000 | 0.000 | 0.000 | 0 |
-| E · Rules only (A+B+C) | 0.967 | 0.996 | 0.981 | 240 |
-| **F · Full fusion** | **0.967** | **0.996** | **0.981** | 240 |
+| E · Rules only (A+B+C) | 0.971 | 1.000 | 0.985 | 240 |
+| **F · Full fusion** | **0.971** | **1.000** | **0.985** | 240 |
 
 ### Recall by attack type
 
@@ -630,13 +630,14 @@ exactly those counters. That is the entire point.
 |---|---:|---:|---:|
 | Brute force | 54 | 54 | **1.000** |
 | Impossible travel | 8 | 8 | **1.000** |
-| Password spray | 170 | 171 | **0.994** |
+| Password spray | 171 | 171 | **1.000** |
 
-### Noise reduction
+### Event alerts and campaigns
 
-**3,894 test events → 240 escalatable → 5 campaigns.** Against the baseline's 56
-alerts, that is **91.1 % noise reduction** — measured in campaigns, because a
-campaign is the unit an analyst actually opens.
+**3,894 test events → 240 escalatable events → 5 campaigns.** The baseline
+raised 56 event alerts. SprayTrace raised 240, an event-alert reduction
+of −328.6%. SprayTrace missed zero labeled attack events and the baseline
+missed 177. [Evaluation results](eval_results.md).
 
 ### Three results we are reporting rather than hiding
 
@@ -770,7 +771,7 @@ Stated plainly.
 ./run.sh                               # generate → analyse → serve API + UI
 python -m src.scripts.generate_data    # regenerate the dataset (seed 42)
 python -m src.scripts.evaluate         # reproduce every number in section 13
-pytest src/tests -q                    # 47 tests
+pytest src/tests -q                    # 55 tests
 ```
 
 ### Cloud deployment

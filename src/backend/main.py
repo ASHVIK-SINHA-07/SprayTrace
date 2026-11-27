@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 from datetime import datetime, timedelta, timezone
+from itertools import count
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from src.backend import store
 from src.backend.config import DOCS, TECHNIQUE_NAMES
 from src.backend.fusion import suppressed
 from src.backend.normalize import read_events
-from src.backend.pipeline import analyze
+from src.backend.pipeline import Analysis, analyze
 
 app = FastAPI(title="SprayTrace", version="0.1.0")
 
@@ -47,8 +48,7 @@ def _json_safe(frame: pd.DataFrame) -> list[dict[str, Any]]:
     return out.replace({pd.NA: None}).to_dict("records")
 
 
-def _events_for(event_ids: list[int]) -> list[dict[str, Any]]:
-    analysis = store.get_analysis()
+def _events_for(analysis: Analysis, event_ids: list[int]) -> list[dict[str, Any]]:
     scored = analysis.scored[analysis.scored["event_id"].isin(event_ids)]
     alerts = analysis.alerts[analysis.alerts["event_id"].isin(event_ids)]
     evidence = alerts.sort_values("score", ascending=False).groupby("event_id")[
@@ -75,13 +75,13 @@ def list_campaigns() -> list[dict[str, Any]]:
 @app.get("/api/campaigns/{campaign_id}")
 def get_campaign(campaign_id: str) -> dict[str, Any]:
     analysis = store.get_analysis()
-    match = analysis.campaigns[analysis.campaigns["campaign_id"] == campaign_id]
-    if match.empty:
+    if campaign_id not in analysis.membership:
         raise HTTPException(status_code=404, detail=f"No campaign {campaign_id}")
+    match = analysis.campaigns[analysis.campaigns["campaign_id"] == campaign_id]
 
-    event_ids = analysis.membership.get(campaign_id, [])
+    event_ids = analysis.membership[campaign_id]
     campaign = _json_safe(match)[0]
-    campaign["events"] = _events_for(event_ids)
+    campaign["events"] = _events_for(analysis, event_ids)
     campaign["technique_name"] = TECHNIQUE_NAMES.get(campaign["technique"], "")
     return campaign
 
@@ -110,7 +110,7 @@ def list_events(
         ]
         frame = frame[frame["event_id"].isin(ids)]
     frame = frame.sort_values("risk", ascending=False).head(limit)
-    return _events_for(frame["event_id"].tolist())
+    return _events_for(analysis, frame["event_id"].tolist())
 
 
 @app.get("/api/users/{username}")
@@ -135,7 +135,7 @@ def get_user(username: str) -> dict[str, Any]:
         "distinct_ips": int(events["source_ip"].nunique()),
         "distinct_countries": int(events["country"].nunique()),
         "campaigns": campaigns,
-        "events": _events_for(events["event_id"].tolist()),
+        "events": _events_for(analysis, events["event_id"].tolist()),
     }
 
 
@@ -209,12 +209,17 @@ def post_inject(
     )
 
     rows: list[dict[str, Any]] = []
-    next_id = int(events["event_id"].max()) + 1
+    first_id = int(events["event_id"].max()) + 1
+    if first_id + 2 * len(targets) - 1 <= (1 << 63) - 1:
+        new_ids = count(first_id)
+    else:
+        used_ids = set(events["event_id"])
+        new_ids = (event_id for event_id in count() if event_id not in used_ids)
     for index, username in enumerate(targets):
         for attempt in range(2):
             rows.append(
                 {
-                    "event_id": next_id,
+                    "event_id": next(new_ids),
                     "timestamp": start
                     + timedelta(minutes=(index / max(len(targets), 1)) * minutes,
                                 seconds=20 * attempt),
@@ -229,7 +234,6 @@ def post_inject(
                     "user_agent": "python-requests/2.32.3",
                 }
             )
-            next_id += 1
 
     injected = pd.DataFrame(rows)
     injected["timestamp"] = pd.to_datetime(injected["timestamp"], utc=True)
@@ -237,14 +241,21 @@ def post_inject(
     combined.attrs["source_format"] = analysis.source_format
 
     updated = store.set_analysis(analyze(combined))
-    fresh = updated.campaigns[
-        updated.campaigns["source_ips"].apply(lambda ips: source_ip in ips)
+    injected_ids = set(injected["event_id"])
+    fresh_ids = [
+        campaign_id for campaign_id, members in updated.membership.items()
+        if injected_ids.intersection(members)
     ]
+    fresh = None
+    if fresh_ids:
+        fresh = _json_safe(updated.campaigns[
+            updated.campaigns["campaign_id"].isin(fresh_ids)
+        ])[0]
     return {
         "injected_events": len(rows),
         "accounts_targeted": len(targets),
         "source_ip": source_ip,
-        "campaign": _json_safe(fresh)[0] if not fresh.empty else None,
+        "campaign": fresh,
         "summary": updated.summary,
     }
 
@@ -292,9 +303,8 @@ def health() -> dict[str, str]:
 # one deployable unit and no cross-origin configuration in production. Mounted
 # last so every /api route above still wins.
 
-_static = Path(os.environ.get("SPRAYTRACE_STATIC", "")) if os.environ.get(
-    "SPRAYTRACE_STATIC"
-) else None
+_static_path = os.environ.get("SPRAYTRACE_STATIC")
+_static = Path(_static_path).resolve() if _static_path else None
 
 if _static and _static.is_dir():
     app.mount("/assets", StaticFiles(directory=_static / "assets"), name="assets")
@@ -302,7 +312,7 @@ if _static and _static.is_dir():
     @app.get("/{full_path:path}")
     def spa(full_path: str) -> FileResponse:
         """Serve the dashboard, falling back to index.html for client routes."""
-        candidate = _static / full_path
-        if full_path and candidate.is_file():
+        candidate = (_static / full_path).resolve()
+        if candidate.is_relative_to(_static) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(_static / "index.html")

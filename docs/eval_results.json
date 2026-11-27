@@ -1,7 +1,7 @@
 {
-  "generated": "2026-10-06 10:41 UTC",
+  "generated": "2026-11-26 16:18 UTC",
   "calibrated": true,
-  "protocol": "split by whole scenario; tuned on validation; reported once on test",
+  "protocol": "whole-scenario split, train-fitted models, validation-only calibration, held-out test",
   "splits": {
     "train": {
       "scenarios": 33
@@ -17,12 +17,61 @@
   "frozen_config": {
     "theta_b": 5,
     "theta_u": 12,
+    "weights": {
+      "brute_force": 0.2,
+      "password_spray": 0.2,
+      "distributed_spray": 0.2,
+      "impossible_travel": 0.2,
+      "isolation_forest": 0.2
+    },
     "rule_floor": {
       "brute_force": 0.45,
       "password_spray": 0.45,
       "distributed_spray": 0.45,
       "impossible_travel": 0.41
     },
+    "contamination": 0.01,
+    "gate": {
+      "critical": 0.8,
+      "high": 0.6,
+      "medium": 0.4
+    }
+  },
+  "validation_recommendation": {
+    "theta_b": 5,
+    "theta_u": 12,
+    "weights": {
+      "brute_force": 0.2,
+      "password_spray": 0.2,
+      "distributed_spray": 0.2,
+      "impossible_travel": 0.2,
+      "isolation_forest": 0.2
+    },
+    "rule_floor": {
+      "brute_force": 0.45,
+      "password_spray": 0.45,
+      "distributed_spray": 0.45,
+      "impossible_travel": 0.41
+    },
+    "contamination": 0.01,
+    "gate": {
+      "critical": 0.8,
+      "high": 0.6,
+      "medium": 0.4
+    }
+  },
+  "weighted_ablation_config": {
+    "theta_b": 5,
+    "theta_u": 12,
+    "weights": {
+      "brute_force": 0.45,
+      "password_spray": 0.1,
+      "distributed_spray": 0.25,
+      "impossible_travel": 0.1,
+      "isolation_forest": 0.1
+    },
+    "rule_floor": null,
+    "contamination": 0.01,
     "gate": {
       "critical": 0.8,
       "high": 0.6,
@@ -68,14 +117,14 @@
     },
     {
       "name": "B2 \u00b7 Distributed spray only",
-      "precision": 0.9744,
-      "recall": 0.8155,
-      "f1": 0.8879,
+      "precision": 0.9795,
+      "recall": 0.8197,
+      "f1": 0.8925,
       "alerts": 195,
-      "true_positives": 190,
-      "false_positives": 5,
-      "false_negatives": 43,
-      "alert_to_tp": 1.03,
+      "true_positives": 191,
+      "false_positives": 4,
+      "false_negatives": 42,
+      "alert_to_tp": 1.02,
       "noise_reduction": null
     },
     {
@@ -103,51 +152,102 @@
       "noise_reduction": null
     },
     {
-      "name": "E \u00b7 Rules only (A+B+C)",
-      "precision": 0.9667,
-      "recall": 0.9957,
-      "f1": 0.981,
+      "name": "E \u00b7 Rules only",
+      "precision": 0.9708,
+      "recall": 1.0,
+      "f1": 0.9852,
       "alerts": 240,
-      "true_positives": 232,
-      "false_positives": 8,
-      "false_negatives": 1,
+      "true_positives": 233,
+      "false_positives": 7,
+      "false_negatives": 0,
       "alert_to_tp": 1.03,
       "noise_reduction": null
     },
     {
       "name": "F \u00b7 Full fusion",
-      "precision": 0.9667,
-      "recall": 0.9957,
-      "f1": 0.981,
+      "precision": 0.9708,
+      "recall": 1.0,
+      "f1": 0.9852,
       "alerts": 240,
-      "true_positives": 232,
-      "false_positives": 8,
-      "false_negatives": 1,
+      "true_positives": 233,
+      "false_positives": 7,
+      "false_negatives": 0,
       "alert_to_tp": 1.03,
-      "noise_reduction": 91.1
+      "noise_reduction": -328.6
+    },
+    {
+      "name": "G \u00b7 Tuned weighted fusion without rule floors",
+      "precision": 1.0,
+      "recall": 0.2318,
+      "f1": 0.3763,
+      "alerts": 54,
+      "true_positives": 54,
+      "false_positives": 0,
+      "false_negatives": 179,
+      "alert_to_tp": 1.0,
+      "noise_reduction": null
     }
   ],
   "per_attack_type": {
     "brute_force": {
       "detected": 54,
       "total": 54,
-      "recall": 1.0
+      "recall": 1.0,
+      "scenarios_detected": 3,
+      "scenarios_total": 3
     },
     "impossible_travel": {
       "detected": 8,
       "total": 8,
-      "recall": 1.0
+      "recall": 1.0,
+      "scenarios_detected": 4,
+      "scenarios_total": 4
     },
     "password_spray": {
-      "detected": 170,
+      "detected": 171,
       "total": 171,
-      "recall": 0.9942
+      "recall": 1.0,
+      "scenarios_detected": 2,
+      "scenarios_total": 2
     }
   },
+  "gate_sensitivity": [
+    {
+      "gate": 0.35,
+      "alerts": 240,
+      "false_negatives": 0,
+      "alert_reduction": -328.6
+    },
+    {
+      "gate": 0.4,
+      "alerts": 240,
+      "false_negatives": 0,
+      "alert_reduction": -328.6
+    },
+    {
+      "gate": 0.45,
+      "alerts": 240,
+      "false_negatives": 0,
+      "alert_reduction": -328.6
+    },
+    {
+      "gate": 0.6,
+      "alerts": 239,
+      "false_negatives": 0,
+      "alert_reduction": -326.8
+    },
+    {
+      "gate": 0.8,
+      "alerts": 155,
+      "false_negatives": 78,
+      "alert_reduction": -176.8
+    }
+  ],
   "reduction": {
     "raw_events": 3894,
     "escalatable": 240,
-    "campaigns": 5
+    "campaigns": 5,
+    "baseline_event_alerts": 56
   },
-  "grid_search_points": 27
+  "grid_search_points": 540
 }

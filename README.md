@@ -27,7 +27,7 @@ and the per-**IP** counter goes quiet too. On our held-out test data a naive
 per-user/per-IP threshold detector reaches **F1 0.388** — it catches brute force
 and almost nothing else.
 
-SprayTrace reaches **F1 0.981** on the same data, same labels, same split.
+SprayTrace reaches **F1 0.985** on the same data, same labels, same split.
 
 ## How it works
 
@@ -62,21 +62,23 @@ That gap is the single most important finding in this project; see
 
 ## Results
 
-Measured on held-out test scenarios. Tuned on validation, frozen, reported once.
+Measured on held-out scenarios using the checked-in operating configuration.
 
 | Configuration | Precision | Recall | F1 |
 |---|---:|---:|---:|
 | Naive threshold baseline | 1.000 | 0.240 | 0.388 |
 | A · Brute force only | 1.000 | 0.232 | 0.376 |
 | B · Per-source spray only | 0.000 | 0.000 | 0.000 |
-| B2 · Distributed spray only | 0.974 | 0.816 | 0.888 |
+| B2 · Distributed spray only | 0.980 | 0.820 | 0.892 |
 | C · Travel only | 0.727 | 0.034 | 0.066 |
 | D · Isolation Forest only | 0.000 | 0.000 | 0.000 |
-| E · Rules only | 0.967 | 0.996 | 0.981 |
-| **F · Full fusion** | **0.967** | **0.996** | **0.981** |
+| E · Rules only | 0.971 | 1.000 | 0.985 |
+| **F · Full fusion** | **0.971** | **1.000** | **0.985** |
 
-**91.1% noise reduction** versus the baseline, measured in campaigns — the unit
-an analyst actually opens.
+On 3,894 held-out events, SprayTrace raised 240 event alerts and grouped them
+into five campaigns. The baseline raised 56 event alerts. SprayTrace missed
+zero labeled attack events and the baseline missed 177. The full ablation and
+gate sensitivity are available in [the evaluation results](docs/eval_results.md).
 
 Two honest negatives, both reported rather than tuned away:
 
@@ -111,7 +113,7 @@ Dashboard at <http://localhost:5173>, API at <http://localhost:8000>.
 .venv/bin/python -m src.scripts.generate_data   # regenerate synthetic logs
 .venv/bin/python -m src.scripts.report          # terminal incident report
 .venv/bin/python -m src.scripts.evaluate        # measure, write eval_results
-.venv/bin/python -m pytest src/tests -q         # 47 tests
+.venv/bin/python -m pytest src/tests -q         # 55 tests
 ```
 
 `report.py` runs the whole pipeline in the terminal and is the fallback demo if
@@ -170,7 +172,7 @@ src/backend/    normalize · detection · features · model · fusion · correla
                 baseline · pipeline · store · main (FastAPI)
 src/scripts/    generate_data · evaluate · report
 src/frontend/   Vite + React + TypeScript dashboard
-src/tests/      47 tests
+src/tests/      55 tests
 configs/        thresholds.yaml — every tunable, frozen by evaluate.py
 docs/           specs + measured results
 ```

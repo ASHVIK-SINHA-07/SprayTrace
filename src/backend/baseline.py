@@ -1,15 +1,15 @@
 """Naive threshold baseline -- the "basic SIEM threshold" alternative.
 
 Alerts when failures per user, or per IP, exceed a fixed count in a window. This
-is what most shops actually run, and it is the reference for the noise-reduction
-claim. Keeping it honest matters: a strawman baseline makes the comparison
-worthless, so the thresholds here are tuned on validation data exactly as
-SprayTrace's are.
+is the reference for the event-alert comparison.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+
+from src.backend.detection import trailing_window_starts
 
 DEFAULT_PER_USER = 5
 DEFAULT_PER_IP = 20
@@ -27,19 +27,18 @@ def naive_threshold_alerts(
     if failures.empty:
         return set()
 
-    window = f"{window_minutes}min"
     flagged: set[int] = set()
 
     for key, threshold in (("username", per_user), ("source_ip", per_ip)):
         for _, group in failures.groupby(key):
-            indexed = group.sort_values("timestamp").set_index("timestamp")
-            counts = indexed["event_id"].rolling(window).count()
-            breaching = counts[counts > threshold]
-            if breaching.empty:
+            if len(group) <= threshold:
                 continue
-            start = breaching.index.min() - pd.Timedelta(minutes=window_minutes)
-            flagged.update(
-                int(e) for e in indexed.loc[start:breaching.index.max(), "event_id"]
-            )
+            group = group.sort_values("timestamp", kind="stable")
+            starts = trailing_window_starts(pd.DatetimeIndex(group["timestamp"]), window_minutes)
+            ends = np.flatnonzero(np.arange(len(group)) - starts + 1 > threshold)
+            coverage = np.zeros(len(group) + 1, dtype=int)
+            np.add.at(coverage, starts[ends], 1)
+            coverage[ends + 1] -= 1
+            flagged.update(group.loc[coverage.cumsum()[:-1] > 0, "event_id"].astype(int))
 
     return flagged

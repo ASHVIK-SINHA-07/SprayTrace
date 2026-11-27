@@ -82,7 +82,7 @@ precision.
 
 | What happens | What you say | What you do |
 |---|---|---|
-| UI hangs | "While that loads — the key number here is 0.388 versus 0.981" | Keep narrating, it usually recovers |
+| UI hangs | "While that loads — the key number here is 0.388 versus 0.985" | Keep narrating, it usually recovers |
 | UI dead | "Let me show you the same pipeline in the terminal" | Switch to `report.py` |
 | Injection fails | "The campaigns already on screen are the same detection path" | Skip it, continue |
 | Everything dead | "Our measured results are here" | Open `docs/eval_results.md` + backup recording |

@@ -248,15 +248,14 @@ Everything in the project as short, memorisable facts. For questions outside the
 ## 21 · Results — headline
 
 - Baseline: P 1.000, R 0.240, **F1 0.388**.
-- SprayTrace: P 0.967, R 0.996, **F1 0.981**.
+- SprayTrace: P 0.971, R 1.000, **F1 0.985**.
 - The baseline has perfect precision but finds **under a quarter** of attacks.
 - It catches brute force and misses everything else — because spray is built to evade
   exactly those counters.
 - **3,894 test events → 240 escalatable → 5 campaigns.**
-- **91.1% noise reduction**, measured in campaigns because that is the unit an analyst
-  opens.
-- Comparing raw alerts would show negative reduction purely because we detect more real
-  attacks.
+- The baseline flagged 56 events and missed 177 labeled attack events.
+- SprayTrace flagged 240 events, grouped them into five campaigns, and missed zero
+  labeled attack events.
 
 ## 22 · Ablation table
 
@@ -265,13 +264,13 @@ Everything in the project as short, memorisable facts. For questions outside the
 | Naive baseline | 1.000 | 0.240 | 0.388 |
 | A · Brute force only | 1.000 | 0.232 | 0.376 |
 | B · Per-source spray only | 0.000 | 0.000 | **0.000** |
-| B2 · Distributed spray only | 0.974 | 0.816 | 0.888 |
+| B2 · Distributed spray only | 0.980 | 0.820 | 0.892 |
 | C · Travel only | 0.727 | 0.034 | 0.066 |
 | D · Isolation Forest only | 0.000 | 0.000 | **0.000** |
-| E · Rules only | 0.967 | 0.996 | 0.981 |
-| F · Full fusion | 0.967 | 0.996 | **0.981** |
+| E · Rules only | 0.971 | 1.000 | 0.985 |
+| F · Full fusion | 0.971 | 1.000 | **0.985** |
 
-Recall by type: brute force 1.000 · impossible travel 1.000 · password spray 0.994.
+Recall by type: brute force 1.000 · impossible travel 1.000 · password spray 1.000.
 
 ## 23 · The three honest results — rehearse these
 
@@ -345,7 +344,7 @@ Recall by type: brute force 1.000 · impossible travel 1.000 · password spray 0
 - `min-replicas 1` keeps it warm — no cold start during a live demo.
 - **The local path is primary.** `./run.sh` runs everything with no cloud dependency.
 - Throughput **5,450 events/sec** — 1M events ≈ 3 minutes.
-- **47 tests passing.**
+- **55 tests passing.**
 
 ## 27 · Limitations — say these before they ask
 
@@ -387,15 +386,15 @@ Recall by type: brute force 1.000 · impossible travel 1.000 · password spray 0
 | Events | 11,229 |
 | Campaigns | 29 |
 | Escalatable | 1,329 |
-| Suppressed | 4,295 |
+| Suppressed | 4,290 |
 | Baseline F1 | 0.388 |
-| SprayTrace F1 | 0.981 |
-| Precision / Recall | 0.967 / 0.996 |
-| Noise reduction | 91.1% |
+| SprayTrace F1 | 0.985 |
+| Precision / Recall | 0.971 / 1.000 |
+| Held-out event alerts | 56 baseline, 240 SprayTrace |
 | LANL events | 3,000,000 |
 | LANL distributed alerts | **0** |
 | Throughput | 5,450 events/sec |
-| Tests | 47 |
+| Tests | 55 |
 | θ_B / θ_U | 5 / 12 |
 | Travel limit | 1000 km/h |
 | Gate | 0.80 / 0.60 / 0.40 |
